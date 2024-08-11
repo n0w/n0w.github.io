@@ -1,0 +1,164 @@
+<html>
+
+<head>
+    <title>Out of Scope - Reversing a remote with python and an oscilloscope (Part I)
+</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="/theme/css/normalize.css" />
+    <link rel="stylesheet" href="/theme/css/simplegrid.css" />
+    <link rel="stylesheet" href="/theme/css/pygment.css" />
+    <link rel="stylesheet" href="/theme/css/main.css" />
+    <link rel="stylesheet" href="/theme/fonts/fonts.css">
+    <link rel="stylesheet" href="/theme/css/font-awesome.min.css">
+</head>
+
+<body>
+    <div id="page-container">
+        <div id="content-wrap">
+            <header class=" grid grid-pad">
+                <div class="col-1-1 header">
+                    <ul id="navigation">
+                        <li><a class="main-title" href="/">Out of Scope</a></li>
+                        <li><a href="/category/blog.html">✒ Blog</a></li>
+                        <li><a href="/pages/whoami.html">$ whoami</a></li>
+                    </ul>
+                </div>
+            </header>
+
+            <div class="grid grid-pad">
+                <section class="col-10-12" id="content">
+<div class="article">
+    <h1>Reversing a remote with python and an oscilloscope (Part I)</h1>
+    <small> 01/09/2016 on <a href="/category/blog.html">✒ Blog</a></small>
+    <small>| tags : </small>
+    <span class="tag"><a href="/tag/hardware-hacking.html">hardware hacking</a>,</span>
+    <span class="tag"><a href="/tag/electronics.html">electronics</a>,</span>
+    <span class="tag"><a href="/tag/reverse-engineering.html">reverse-engineering</a></span>
+
+    <div class="article-content">
+        <p>In this series we will analyze and discuss the inner workings of an infrared AC remote. These little devices are as common as well-known, so I will obviate most of the stuff which can be found online (but provide useful links for the curious reader :p).</p>
+<h2>0x0: target</h2>
+<p>The remote has several buttons and a simple LCD screen showing the current settings.  </p>
+<p>By pressing 'mode' it switches between four different modes, attending to the icon (or lack of it) displayed on the screen:  </p>
+<ul>
+<li>Snow flake</li>
+<li>Arrow-like rounded A</li>
+<li>Water drop</li>
+<li>Blank</li>
+</ul>
+<p>There are also two icons representing the fan status, and of course, the current temperature setting.</p>
+<p>The first thing to do would be looking up in the user guide for what that tiny icons do, but we may be anxious to capture some signals and (luckily) decode some bits out of them so maybe later :p  </p>
+<p>Anyway, the buttons are pretty self-explaining except for the 'turbo' one which seems to switch to some <em>preset state</em>, displaying 16º and full fan speed on display (annoyingly overriding any previous setting). </p>
+<p>Almost every one of these type of remotes usually send one full packet every time a button gets released (this one even waits for some time to actually send the packet if you repeatedly press quickly enough) containing the current state which the AC unit should be on.</p>
+<h2>0x1: playset</h2>
+<p>I used a handy DS1054Z hooked up to and a very simple circuit described above to acquire the signal.</p>
+<h4>0x1[0] Part/tool list</h4>
+<ul>
+<li>1 x breadboard</li>
+<li>1x tsop382 infrared sensor (<a href="http://www.vishay.com/docs/82491/tsop382.pdf">datasheet</a>)</li>
+<li>6 x jumper cables  </li>
+<li>1 x 3v3 power source </li>
+<li>1 x oscilloscope</li>
+</ul>
+<p>Pins 2 and 3 are connected to GND and 3v3 respectively, and pin 1 is connected to DS1054Z's channel one. In my setup I'm using an Arduino just to power the receiver.</p>
+<h4>0x1[1] a little bit of theory</h4>
+<p>As Giorgos Lazaridis writes on <a href="http://www.pcbheaven.com/userpages/RC_Protocol_and_Modulation/">Remote Control Basics</a>:  </p>
+<blockquote>
+<p><em>It is important to understand the difference between modulation and protocol. In words, modulation is the method that the signal is being transmitted by the transmitter so that the receiver will recognize it as a valid signal. On the other hand, the protocol is the method that the data to be transmitted are arranged and sent to the receiver - Both the receiver and transmitter must have the same modulation-demodulation method and also they must have the same protocol encoding and decoding method.</em></p>
+<p><em>[...]</em></p>
+<p><em>Here is how this works: First of all we select a frequency for the carrier frequency such that it cannot be mistaken with other ambient IR frequencies. A very common range for IR transmitters is 36 to 46 KHz. Suppose that we choose a carrier frequency of 38 KHz.</em></p>
+<p><em>Suppose now that we want to transmit a pulse with 8 mSec ON duration and 2 mSec OFF duration (digital ACE). Instead of simply turning ON the LED for 8 mSec, we will set the LED to oscillate at the carrier frequency for 8 mSec. This way, instead of transmitting a continuous light beam, we transmit a series of very fast light pulses (38 KHz) for a duration of 8 mSec. The receiver has a narrow band filter that discards all other IR light sources that do not have a 38 KHz frequency. If the transmitted signal reaches the receiver, it will go through the narrow-band filter. Then, with a set of low-pass filters or other filtering devices, it will be translated into a pulse back again.</em></p>
+</blockquote>
+<p>Luckily for us, it turns out that the tsop382 filters and demodulates the signal for us, so we are left with bit decoding and protocol reversing. Nice!</p>
+<p>As the tsop382 datasheet states:</p>
+<blockquote>
+<p><em>These products are miniaturized IR receiver modules for infrared remote control systems. A PIN diode and a preamplifier are assembled on a leadframe, the epoxy package contains an IR filter. The demodulated output signal can be directly connected to a microprocessor for decoding.</em></p>
+</blockquote>
+<p>So now it's time to power the scope and start pressing buttons, adjusting time and voltage settings to try and get a visual image of what's going on the remote.</p>
+<h2>0x2: acquiring the signal</h2>
+<p>Once we visualize our signal in 'live' mode, we have to capture as many signals as we can to get an idea of what's being sent. It's a pretty tedious (and slow!) job: set SINGLE mode, press button, export, set SINGLE mode again, press another button, repeat.</p>
+<p>There are several projects over the Internet looking to speed things up a little; <a href="https://github.com/RoGeorge/DS1054Z_screen_capture">this one</a> was particularly convenient to grab the displayed signal voltage values in a nice csv over the network (much quicker than using a USB drive to transfer them!). I also used it to take the PNG screenshots of the scope for this post ^^.</p>
+<p>The process I followed was basically to capture ON/OFF packets without changing any setting (21º max fan snowflake) and then increasing the temperature one step each capture. I didn't knew anything about the protocol, not did I care, yet, but it seemed logical that only a few bits of the sequence would change on one-step-changes (unless I were trying to reverse-engineer a cheap AC control featuring Military Grade© encryption).</p>
+<p>Note: In my first attempt to transfer the signal values to my PC I did realize that every capture was around 20MB, so I lowered the sample rate to 500kS/s.</p>
+<h2>0x3: from signal to actual bits</h2>
+<p>If we take a closer look to the signal we can appreciate a long low pulse first and long and short high ones after, conforming the rest of the packet. So the long low must be the preamble:</p>
+<p>Then we have the long high:</p>
+<p>Finally the short high:</p>
+<p>With the help of the built-in cursor we can measure the actual length of the pulses (BX-AX value):</p>
+<ul>
+<li>Preamble: ~3,3ms</li>
+<li>Long: ~1,1 ms</li>
+<li>Short: ~0.3 ms</li>
+</ul>
+<p>It looks like a certain ratio exists between preamble, long and short pulses that will help us to properly decode the signal; if we name the short pulse 'S', the long 'L' and the preamble 'P' we have:</p>
+<p><code>P ~= 3*L ~= 11S</code></p>
+<p>So by any means the preamble length could be used by a receiver to synchronize its clock to the expected long and short pulse lengths.</p>
+<p>Once the data samples have been transfered to a computer we can run the following python script to plot the voltage values contained in the csv file:</p>
+<div class="highlight"><pre><span></span><code><span class="ch">#!/usr/bin/python3</span>
+
+<span class="kn">import</span> <span class="nn">csv</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">plt</span>
+<span class="kn">import</span> <span class="nn">argparse</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">p</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span> <span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s1">&#39;Extracts values from Rigol CSV.&#39;</span><span class="p">)</span>
+    <span class="n">p</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;file&#39;</span><span class="p">,</span> <span class="n">metavar</span> <span class="o">=</span> <span class="s1">&#39;file&#39;</span><span class="p">,</span> <span class="nb">type</span> <span class="o">=</span> <span class="nb">str</span><span class="p">,</span> <span class="n">help</span> <span class="o">=</span> <span class="s1">&#39;File to process.&#39;</span><span class="p">)</span>
+    <span class="n">args</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span>
+
+
+    <span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">genfromtxt</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">file</span><span class="p">,</span> <span class="n">delimiter</span><span class="o">=</span><span class="s1">&#39;,&#39;</span><span class="p">,</span> <span class="n">skip_header</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">names</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;x&#39;</span><span class="p">,</span> <span class="s1">&#39;y&#39;</span><span class="p">])</span>
+
+    <span class="n">fig</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">figure</span><span class="p">()</span>
+    <span class="n">ax1</span> <span class="o">=</span> <span class="n">fig</span><span class="o">.</span><span class="n">add_subplot</span><span class="p">(</span><span class="mi">111</span><span class="p">)</span>
+    <span class="n">ax1</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s1">&#39;x&#39;</span><span class="p">],</span> <span class="n">data</span><span class="p">[</span><span class="s1">&#39;y&#39;</span><span class="p">],</span> <span class="n">color</span><span class="o">=</span><span class="s1">&#39;r&#39;</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s1">&#39;the data&#39;</span><span class="p">)</span>
+
+    <span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+</code></pre></div>
+
+<p>The script will take the csv file as argument, extracting its data by using the numpy lib and plotting it with matplotlib, showing the following output:</p>
+<p>After playing a little with the pan/zoom controls we get the same wave displayed at the scope:</p>
+<p>The signal oscillates between ~3 and ~0 volts; it looks like some kind of pulse width encoding is being used (see: <a href="https://en.wikipedia.org/wiki/Pulse-width_modulation">PWM</a>). As we don't really know how the protocol was designed, we will (randomly) assign logic 'one' to long pulses and logic 'zero' to the short ones. It doesn't really matter (in fact, the program I wrote lets you decode the file in both ways) how we assign the symbols as long as we do it in a proper way.</p>
+<p>The same problem arises with the endianness: we don't really know if the remote is sending the most or the least significant bit first... no problem! Our little python program will let us play with the endianness too:</p>
+    </div>
+
+
+</div>
+                </section>
+
+                <aside class="col-2-12" id="side">
+
+                    <div class="widget cat">
+                        <h2>Categories</h2>
+                        <div class="cat-link">
+                            <a href="/category/blog.html">✒ Blog</a>
+                        </div>
+                    </div>
+
+
+                    <div class="widget">
+                        <h2>Social</h2>
+                        <div class="cat-link">
+                            <a href="https://www.linkedin.com/in/asuarezbm/"><svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="0 0 448 512"><!--! Font Awesome Free 6.4.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2023 Fonticons, Inc. --><path fill="#1E67CE" d="M416 32H31.9C14.3 32 0 46.5 0 64.3v383.4C0 465.5 14.3 480 31.9 480H416c17.6 0 32-14.5 32-32.3V64.3c0-17.8-14.4-32.3-32-32.3zM135.4 416H69V202.2h66.5V416zm-33.2-243c-21.3 0-38.5-17.3-38.5-38.5S80.9 96 102.2 96c21.2 0 38.5 17.3 38.5 38.5 0 21.3-17.2 38.5-38.5 38.5zm282.1 243h-66.4V312c0-24.8-.5-56.7-34.5-56.7-34.6 0-39.9 27-39.9 54.9V416h-66.4V202.2h63.7v29.2h.9c8.9-16.8 30.6-34.5 62.9-34.5 67.2 0 79.7 44.3 79.7 101.9V416z"/></svg> LinkedIn</a>
+                        </div>
+                        <div class="cat-link">
+                            <a href="https://infosec.exchange/@n0w"><svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="0 0 448 512"><!--! Font Awesome Free 6.4.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2023 Fonticons, Inc. --><path fill="#1E67CE" d="M433 179.11c0-97.2-63.71-125.7-63.71-125.7-62.52-28.7-228.56-28.4-290.48 0 0 0-63.72 28.5-63.72 125.7 0 115.7-6.6 259.4 105.63 289.1 40.51 10.7 75.32 13 103.33 11.4 50.81-2.8 79.32-18.1 79.32-18.1l-1.7-36.9s-36.31 11.4-77.12 10.1c-40.41-1.4-83-4.4-89.63-54a102.54 102.54 0 0 1-.9-13.9c85.63 20.9 158.65 9.1 178.75 6.7 56.12-6.7 105-41.3 111.23-72.9 9.8-49.8 9-121.5 9-121.5zm-75.12 125.2h-46.63v-114.2c0-49.7-64-51.6-64 6.9v62.5h-46.33V197c0-58.5-64-56.6-64-6.9v114.2H90.19c0-122.1-5.2-147.9 18.41-175 25.9-28.9 79.82-30.8 103.83 6.1l11.6 19.5 11.6-19.5c24.11-37.1 78.12-34.8 103.83-6.1 23.71 27.3 18.4 53 18.4 175z"/></svg> Mastodon</a>
+                        </div>
+                        <div class="cat-link">
+                            <a href="https://twitter.com/asuarezbm"><svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="0 0 512 512"><!--! Font Awesome Free 6.4.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2023 Fonticons, Inc. --><path fill="#1E67CE" d="M459.37 151.716c.325 4.548.325 9.097.325 13.645 0 138.72-105.583 298.558-298.558 298.558-59.452 0-114.68-17.219-161.137-47.106 8.447.974 16.568 1.299 25.34 1.299 49.055 0 94.213-16.568 130.274-44.832-46.132-.975-84.792-31.188-98.112-72.772 6.498.974 12.995 1.624 19.818 1.624 9.421 0 18.843-1.3 27.614-3.573-48.081-9.747-84.143-51.98-84.143-102.985v-1.299c13.969 7.797 30.214 12.67 47.431 13.319-28.264-18.843-46.781-51.005-46.781-87.391 0-19.492 5.197-37.36 14.294-52.954 51.655 63.675 129.3 105.258 216.365 109.807-1.624-7.797-2.599-15.918-2.599-24.04 0-57.828 46.782-104.934 104.934-104.934 30.213 0 57.502 12.67 76.67 33.137 23.715-4.548 46.456-13.32 66.599-25.34-7.798 24.366-24.366 44.833-46.132 57.827 21.117-2.273 41.584-8.122 60.426-16.243-14.292 20.791-32.161 39.308-52.628 54.253z"/></svg> Twitter</a>
+                        </div>
+                    </div>
+
+
+                </aside>
+            </div>
+        </div>
+        <footer>
+            <div class="footer">
+ <i>...that's out of scope! — said no attacker ever</i>             </div>
+        </footer>
+    </div>
+</body>
+
+</html>

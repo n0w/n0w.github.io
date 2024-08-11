@@ -1,0 +1,282 @@
+<html>
+
+<head>
+    <title>Out of Scope - Reversing a remote with python and an oscilloscope (Part II)
+</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="/theme/css/normalize.css" />
+    <link rel="stylesheet" href="/theme/css/simplegrid.css" />
+    <link rel="stylesheet" href="/theme/css/pygment.css" />
+    <link rel="stylesheet" href="/theme/css/main.css" />
+    <link rel="stylesheet" href="/theme/fonts/fonts.css">
+    <link rel="stylesheet" href="/theme/css/font-awesome.min.css">
+</head>
+
+<body>
+    <div id="page-container">
+        <div id="content-wrap">
+            <header class=" grid grid-pad">
+                <div class="col-1-1 header">
+                    <ul id="navigation">
+                        <li><a class="main-title" href="/">Out of Scope</a></li>
+                        <li><a href="/category/blog.html">✒ Blog</a></li>
+                        <li><a href="/pages/whoami.html">$ whoami</a></li>
+                    </ul>
+                </div>
+            </header>
+
+            <div class="grid grid-pad">
+                <section class="col-10-12" id="content">
+<div class="article">
+    <h1>Reversing a remote with python and an oscilloscope (Part II)</h1>
+    <small> 10/09/2016 on <a href="/category/blog.html">✒ Blog</a></small>
+    <small>| tags : </small>
+    <span class="tag"><a href="/tag/hardware-hacking.html">hardware hacking</a>,</span>
+    <span class="tag"><a href="/tag/electronics.html">electronics</a>,</span>
+    <span class="tag"><a href="/tag/reverse-engineering.html">reverse-engineering</a></span>
+
+    <div class="article-content">
+        <h2>0x3: from signal to actual bits - python code</h2>
+<p>To process the values inside the csv files which we previously downloaded from the scope we'll write a python program.</p>
+<p>The program will flow as follows:</p>
+<div class="highlight"><pre><span></span><code><span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">printBanner</span><span class="p">()</span>
+    <span class="n">p</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">(</span><span class="n">description</span><span class="o">=</span><span class="s1">&#39;Extracts values from Rigol CSV.&#39;</span><span class="p">)</span>
+
+    <span class="n">p</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;file&#39;</span><span class="p">,</span> <span class="n">metavar</span><span class="o">=</span><span class="s1">&#39;file&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;File to process.&#39;</span><span class="p">)</span>
+    <span class="n">p</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;-o&#39;</span><span class="p">,</span> <span class="s1">&#39;--outfile&#39;</span><span class="p">,</span> <span class="n">nargs</span><span class="o">=</span><span class="s1">&#39;?&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s1">&#39;Binary output to file.&#39;</span><span class="p">)</span>
+    <span class="n">p</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;-v&#39;</span><span class="p">,</span> <span class="s1">&#39;--verbosity&#39;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s1">&#39;store_true&#39;</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Print extra information to stdout.&quot;</span><span class="p">)</span>
+    <span class="n">p</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;-b&#39;</span><span class="p">,</span> <span class="s1">&#39;--batch&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Process all csv files in target dir.&quot;</span><span class="p">)</span>
+    <span class="n">p</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;-r&#39;</span><span class="p">,</span> <span class="s1">&#39;--reverse&#39;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s1">&#39;store_true&#39;</span><span class="p">,</span>
+                   <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Assign &#39;1&#39; symbol to short pulses (Defaults to short == &#39;0&#39;).&quot;</span><span class="p">)</span>
+    <span class="n">p</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s1">&#39;-e&#39;</span><span class="p">,</span> <span class="s1">&#39;--endian&#39;</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s1">&#39;store_true&#39;</span><span class="p">,</span>
+                   <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Toggle endianness.&quot;</span><span class="p">)</span>
+    <span class="c1"># ToDo: Recursive mode.</span>
+    <span class="n">args</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;[+] Opening wave file </span><span class="si">%s</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">args</span><span class="o">.</span><span class="n">file</span><span class="p">)</span>
+    <span class="n">samples</span> <span class="o">=</span> <span class="n">read_rigol_csv</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">file</span><span class="p">)</span>
+    <span class="n">packet</span> <span class="o">=</span> <span class="n">parseWave</span><span class="p">(</span><span class="n">samples</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">verbosity</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">reverse</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">endian</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">outfile</span><span class="p">:</span>
+        <span class="n">outputToFile</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">outfile</span><span class="p">,</span> <span class="n">packet</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">verbosity</span><span class="p">:</span>
+        <span class="n">printToStdout</span><span class="p">(</span><span class="n">packet</span><span class="p">)</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;[+] Done.</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div>
+
+<p>After parsing the arguments passed to our program, we'll decide what to do with them.</p>
+<p>The first function to call will be read_rigol_csv(); this function will dump the csv files into a list object:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span> <span class="nf">read_rigol_csv</span><span class="p">(</span><span class="n">fname</span><span class="p">,</span> <span class="n">channel</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+    <span class="n">raw_samples</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">fname</span><span class="p">,</span> <span class="s1">&#39;rt&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">csvfile</span><span class="p">:</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="n">csv</span><span class="o">.</span><span class="n">reader</span><span class="p">(</span><span class="n">csvfile</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">row_num</span><span class="p">,</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">c</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">row_num</span> <span class="o">&gt;</span> <span class="mi">2</span><span class="p">:</span>
+                <span class="n">raw_samples</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+
+    <span class="k">return</span> <span class="n">raw_samples</span>
+</code></pre></div>
+
+<p>The returned object will be passed as argument to parseWave(), which will decode the voltage values into logic ones and zeroes:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span> <span class="nf">parseWave</span><span class="p">(</span><span class="n">samples</span><span class="p">,</span> <span class="n">verbosity</span><span class="p">,</span> <span class="n">reverse</span><span class="p">,</span> <span class="n">endian</span><span class="p">):</span>
+    <span class="n">decodedBinaryString</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="n">preambleStart</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">preambleEnd</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">preambleSize</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">longPulseDuration</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">shortPulseDuration</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">packet</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="c1"># Detect preamble start</span>
+    <span class="c1"># (!) vHIGH may need to be tuned to achieve proper decoding</span>
+    <span class="k">for</span> <span class="n">sample</span> <span class="ow">in</span> <span class="n">samples</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">sample</span> <span class="o">&lt;</span> <span class="n">vHIGH</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">verbosity</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;[+] Preamble start detected! Sample: </span><span class="si">%d</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">preambleStart</span><span class="p">)</span>
+            <span class="k">break</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">preambleStart</span> <span class="o">+=</span> <span class="mi">1</span>
+
+    <span class="c1"># Detect preamble end</span>
+    <span class="k">for</span> <span class="n">sample</span> <span class="ow">in</span> <span class="n">samples</span><span class="p">[</span><span class="n">preambleStart</span><span class="p">:]:</span>
+        <span class="k">if</span> <span class="n">sample</span> <span class="o">&gt;</span> <span class="n">vLOW</span><span class="p">:</span>
+            <span class="n">preambleEnd</span> <span class="o">=</span> <span class="n">preambleStart</span> <span class="o">+</span> <span class="n">preambleSize</span>
+            <span class="n">shortPulseDuration</span> <span class="o">=</span> <span class="n">preambleSize</span> <span class="o">/</span> <span class="mi">11</span>
+            <span class="n">longPulseDuration</span> <span class="o">=</span> <span class="n">preambleSize</span> <span class="o">/</span> <span class="mi">3</span>
+
+            <span class="k">if</span> <span class="n">verbosity</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;[+] Preamble end detected! Sample: </span><span class="si">%d</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">preambleEnd</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="s2">&quot; |------- Preamble duration: </span><span class="si">%d</span><span class="s2"> samples&quot;</span> <span class="o">%</span> <span class="n">preambleSize</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="s2">&quot; |---- Short pulse duration: </span><span class="si">%d</span><span class="s2"> samples&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">shortPulseDuration</span><span class="p">))</span>
+                <span class="nb">print</span><span class="p">(</span><span class="s2">&quot; |----  Long pulse duration: </span><span class="si">%d</span><span class="s2"> samples&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">longPulseDuration</span><span class="p">))</span>
+
+            <span class="c1"># Sanity check</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">shortPulseDuration</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span><span class="n">longPulseDuration</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span><span class="n">preambleSize</span> <span class="o">==</span> <span class="mi">0</span><span class="p">):</span>
+                <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;[e] Zero value detected, bad threshold values? Quitting...&quot;</span><span class="p">)</span>
+                <span class="n">exit</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;[+] Decoding...&quot;</span><span class="p">)</span>
+                <span class="k">break</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">preambleSize</span> <span class="o">+=</span> <span class="mi">1</span>
+
+    <span class="c1"># Start parsing</span>
+    <span class="c1"># numSamplesAct will hold the number or read samples prior to a high-to-low transition</span>
+    <span class="n">numSamplesAct</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">for</span> <span class="n">sample</span> <span class="ow">in</span> <span class="n">samples</span><span class="p">[</span><span class="n">preambleEnd</span><span class="p">:]:</span>
+        <span class="k">if</span> <span class="n">sample</span> <span class="o">&gt;</span> <span class="n">vHIGH</span><span class="p">:</span>
+            <span class="n">numSamplesAct</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">decoded</span> <span class="o">=</span> <span class="n">decode</span><span class="p">(</span><span class="n">numSamplesAct</span><span class="p">,</span> <span class="n">longPulseDuration</span><span class="p">,</span> <span class="n">reverse</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">decoded</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">decodedBinaryString</span> <span class="o">+=</span> <span class="n">decoded</span>
+
+            <span class="n">numSamplesAct</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="c1"># Rip off START bit</span>
+    <span class="n">decodedBinaryString</span> <span class="o">=</span> <span class="n">decodedBinaryString</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
+
+    <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">currentByte</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;[+] Decoded </span><span class="si">%s</span><span class="s2"> bytes&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">decodedBinaryString</span><span class="p">)</span> <span class="o">/</span> <span class="mf">8.0</span><span class="p">))</span>
+
+    <span class="k">for</span> <span class="n">bit</span> <span class="ow">in</span> <span class="n">decodedBinaryString</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">7</span><span class="p">:</span>
+            <span class="n">currentByte</span> <span class="o">+=</span> <span class="n">bit</span>
+            <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">currentByte</span> <span class="o">+=</span> <span class="n">bit</span>
+            <span class="k">if</span> <span class="n">endian</span><span class="p">:</span>
+                <span class="n">currentByte</span> <span class="o">=</span> <span class="n">currentByte</span><span class="p">[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">packet</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">struct</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="s2">&quot;B&quot;</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">currentByte</span><span class="p">,</span> <span class="mi">2</span><span class="p">)))</span>
+
+            <span class="n">currentByte</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+            <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">return</span> <span class="n">packet</span>
+</code></pre></div>
+
+<p>So this function does the juicy stuff:</p>
+<p>First we have to detect the preamble; by observing the captures taken on the previous post, we can see that the voltage is normally high (~3v) and the preamble is just a bunch of low voltage samples; what we are going to do is to detect both start and end samples just by looping from the start and comparing the current sample with certain values that I have defined as global:</p>
+<div class="highlight"><pre><span></span><code>THRESHOLD_VOLTAGE = 1.5
+THRESHOLD_SAMPLES = 10
+vHIGH = 2
+vLOW = 1
+</code></pre></div>
+
+<p>So, once we have detected both preamble start and end, we can use that information to infer the length of our pulses, as we learned with the oscilloscope on the previous post:</p>
+<div class="highlight"><pre><span></span><code><span class="k">for</span> <span class="n">sample</span> <span class="ow">in</span> <span class="n">samples</span><span class="p">[</span><span class="n">preambleStart</span><span class="p">:]:</span>
+    <span class="k">if</span> <span class="n">sample</span> <span class="o">&gt;</span> <span class="n">vLOW</span><span class="p">:</span>
+        <span class="n">preambleEnd</span> <span class="o">=</span> <span class="n">preambleStart</span> <span class="o">+</span> <span class="n">preambleSize</span>
+        <span class="n">shortPulseDuration</span> <span class="o">=</span> <span class="n">preambleSize</span> <span class="o">/</span> <span class="mi">11</span>
+        <span class="n">longPulseDuration</span> <span class="o">=</span> <span class="n">shortPulseDuration</span> <span class="o">*</span> <span class="mi">3</span>
+</code></pre></div>
+
+<p>With those values we loop through the rest of the samples accumulating the number of vHigh samples (i.e. how much samples does it take to get to a high-to-low change).</p>
+<div class="highlight"><pre><span></span><code><span class="k">for</span> <span class="n">sample</span> <span class="ow">in</span> <span class="n">samples</span><span class="p">[</span><span class="n">preambleEnd</span><span class="p">:]:</span>
+    <span class="k">if</span> <span class="n">sample</span> <span class="o">&gt;</span> <span class="n">vHIGH</span><span class="p">:</span>
+        <span class="n">numSamplesAct</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">decoded</span> <span class="o">=</span> <span class="n">decode</span><span class="p">(</span><span class="n">numSamplesAct</span><span class="p">,</span> <span class="n">longPulseDuration</span><span class="p">,</span> <span class="n">reverse</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">decoded</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">decodedBinaryString</span> <span class="o">+=</span> <span class="n">decoded</span>
+
+        <span class="n">numSamplesAct</span> <span class="o">=</span> <span class="mi">0</span>
+</code></pre></div>
+
+<p>Then we call the decode() function which will take the accumulated samples as an argument, as well as how much samples a long pulse lasts and the reverse flag to indicate if a long pulse is interpreted as a logic one or as a logic zero:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span> <span class="nf">decode</span><span class="p">(</span><span class="n">num_samples</span><span class="p">,</span> <span class="n">longPulseDuration</span><span class="p">,</span> <span class="n">reverse</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">num_samples</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span>
+
+    <span class="c1"># Using XOR to reverse symbol assignation</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">num_samples</span> <span class="o">&lt;</span> <span class="p">(</span><span class="n">longPulseDuration</span> <span class="o">-</span> <span class="n">longPulseDuration</span> <span class="o">/</span> <span class="mf">2.5</span><span class="p">))</span> <span class="o">^</span> <span class="n">reverse</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s1">&#39;0&#39;</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s1">&#39;1&#39;</span>
+</code></pre></div>
+
+<p>The previous 'if' statement decides whether to assign a one or a zero, xored with the 'reverse' flag (which effectively reverts the comparison result when set to '1' but does nothing when set to '0'). The (long-long/2.5) calculation is more or less accurate by taking noise variability into account; the number of samples will almost never be exactly the expected because the transmission medium nor the transmitter or receiver device are perfect.</p>
+<p>Once we have decided to which logic level our samples get translated, we just group our bits in 8 element groups, pack them in a list and off we go!</p>
+<div class="highlight"><pre><span></span><code><span class="k">for</span> <span class="n">bit</span> <span class="ow">in</span> <span class="n">decodedBinaryString</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">7</span><span class="p">:</span>
+        <span class="n">currentByte</span> <span class="o">+=</span> <span class="n">bit</span>
+        <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">currentByte</span> <span class="o">+=</span> <span class="n">bit</span>
+        <span class="k">if</span> <span class="n">endian</span><span class="p">:</span>
+            <span class="n">currentByte</span> <span class="o">=</span> <span class="n">currentByte</span><span class="p">[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">packet</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">struct</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="s2">&quot;B&quot;</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">currentByte</span><span class="p">,</span> <span class="mi">2</span><span class="p">)))</span>
+
+        <span class="n">currentByte</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+</code></pre></div>
+
+<p>Now we can add a little eye candy to nicely print what we've decoded or save it to a file:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span> <span class="nf">printToStdout</span><span class="p">(</span><span class="n">packet</span><span class="p">):</span>
+    <span class="c1"># Print human friendly binary string</span>
+    <span class="k">for</span> <span class="n">byte</span> <span class="ow">in</span> <span class="n">packet</span><span class="p">:</span>
+
+        <span class="c1"># Unpacked byte</span>
+        <span class="n">unpacked</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">unpack</span><span class="p">(</span><span class="s2">&quot;B&quot;</span><span class="p">,</span> <span class="n">byte</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+
+        <span class="c1"># ASCII bin representation</span>
+        <span class="n">binascii</span> <span class="o">=</span> <span class="p">(</span><span class="nb">bin</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">unpacked</span><span class="p">)))[</span><span class="mi">2</span><span class="p">:]</span><span class="o">.</span><span class="n">zfill</span><span class="p">(</span><span class="mi">8</span><span class="p">)</span>
+
+        <span class="c1"># ASCII hex representation</span>
+        <span class="n">hexascii</span> <span class="o">=</span> <span class="s2">&quot;0x&quot;</span> <span class="o">+</span> <span class="nb">hex</span><span class="p">(</span><span class="n">unpacked</span><span class="p">)[</span><span class="mi">2</span><span class="p">:]</span><span class="o">.</span><span class="n">zfill</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot; |-----[</span><span class="si">%s</span><span class="s2">]  |  </span><span class="si">%s</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">binascii</span><span class="p">,</span> <span class="n">hexascii</span><span class="p">))</span>
+</code></pre></div>
+
+<p>And voila! Our csv gets decoded and we can work on reverse engineer the protocol.</p>
+<p>The full code as well as some example captures is hosted on github: https://github.com/n0w/acreversing</p>
+    </div>
+
+
+</div>
+                </section>
+
+                <aside class="col-2-12" id="side">
+
+                    <div class="widget cat">
+                        <h2>Categories</h2>
+                        <div class="cat-link">
+                            <a href="/category/blog.html">✒ Blog</a>
+                        </div>
+                    </div>
+
+
+                    <div class="widget">
+                        <h2>Social</h2>
+                        <div class="cat-link">
+                            <a href="https://www.linkedin.com/in/asuarezbm/"><svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="0 0 448 512"><!--! Font Awesome Free 6.4.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2023 Fonticons, Inc. --><path fill="#1E67CE" d="M416 32H31.9C14.3 32 0 46.5 0 64.3v383.4C0 465.5 14.3 480 31.9 480H416c17.6 0 32-14.5 32-32.3V64.3c0-17.8-14.4-32.3-32-32.3zM135.4 416H69V202.2h66.5V416zm-33.2-243c-21.3 0-38.5-17.3-38.5-38.5S80.9 96 102.2 96c21.2 0 38.5 17.3 38.5 38.5 0 21.3-17.2 38.5-38.5 38.5zm282.1 243h-66.4V312c0-24.8-.5-56.7-34.5-56.7-34.6 0-39.9 27-39.9 54.9V416h-66.4V202.2h63.7v29.2h.9c8.9-16.8 30.6-34.5 62.9-34.5 67.2 0 79.7 44.3 79.7 101.9V416z"/></svg> LinkedIn</a>
+                        </div>
+                        <div class="cat-link">
+                            <a href="https://infosec.exchange/@n0w"><svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="0 0 448 512"><!--! Font Awesome Free 6.4.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2023 Fonticons, Inc. --><path fill="#1E67CE" d="M433 179.11c0-97.2-63.71-125.7-63.71-125.7-62.52-28.7-228.56-28.4-290.48 0 0 0-63.72 28.5-63.72 125.7 0 115.7-6.6 259.4 105.63 289.1 40.51 10.7 75.32 13 103.33 11.4 50.81-2.8 79.32-18.1 79.32-18.1l-1.7-36.9s-36.31 11.4-77.12 10.1c-40.41-1.4-83-4.4-89.63-54a102.54 102.54 0 0 1-.9-13.9c85.63 20.9 158.65 9.1 178.75 6.7 56.12-6.7 105-41.3 111.23-72.9 9.8-49.8 9-121.5 9-121.5zm-75.12 125.2h-46.63v-114.2c0-49.7-64-51.6-64 6.9v62.5h-46.33V197c0-58.5-64-56.6-64-6.9v114.2H90.19c0-122.1-5.2-147.9 18.41-175 25.9-28.9 79.82-30.8 103.83 6.1l11.6 19.5 11.6-19.5c24.11-37.1 78.12-34.8 103.83-6.1 23.71 27.3 18.4 53 18.4 175z"/></svg> Mastodon</a>
+                        </div>
+                        <div class="cat-link">
+                            <a href="https://twitter.com/asuarezbm"><svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="0 0 512 512"><!--! Font Awesome Free 6.4.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2023 Fonticons, Inc. --><path fill="#1E67CE" d="M459.37 151.716c.325 4.548.325 9.097.325 13.645 0 138.72-105.583 298.558-298.558 298.558-59.452 0-114.68-17.219-161.137-47.106 8.447.974 16.568 1.299 25.34 1.299 49.055 0 94.213-16.568 130.274-44.832-46.132-.975-84.792-31.188-98.112-72.772 6.498.974 12.995 1.624 19.818 1.624 9.421 0 18.843-1.3 27.614-3.573-48.081-9.747-84.143-51.98-84.143-102.985v-1.299c13.969 7.797 30.214 12.67 47.431 13.319-28.264-18.843-46.781-51.005-46.781-87.391 0-19.492 5.197-37.36 14.294-52.954 51.655 63.675 129.3 105.258 216.365 109.807-1.624-7.797-2.599-15.918-2.599-24.04 0-57.828 46.782-104.934 104.934-104.934 30.213 0 57.502 12.67 76.67 33.137 23.715-4.548 46.456-13.32 66.599-25.34-7.798 24.366-24.366 44.833-46.132 57.827 21.117-2.273 41.584-8.122 60.426-16.243-14.292 20.791-32.161 39.308-52.628 54.253z"/></svg> Twitter</a>
+                        </div>
+                    </div>
+
+
+                </aside>
+            </div>
+        </div>
+        <footer>
+            <div class="footer">
+ <i>...that's out of scope! — said no attacker ever</i>             </div>
+        </footer>
+    </div>
+</body>
+
+</html>

@@ -1,0 +1,183 @@
+<html>
+
+<head>
+    <title>Out of Scope - [rhme2 writeups] Secure filesystem
+</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="/theme/css/normalize.css" />
+    <link rel="stylesheet" href="/theme/css/simplegrid.css" />
+    <link rel="stylesheet" href="/theme/css/pygment.css" />
+    <link rel="stylesheet" href="/theme/css/main.css" />
+    <link rel="stylesheet" href="/theme/fonts/fonts.css">
+    <link rel="stylesheet" href="/theme/css/font-awesome.min.css">
+</head>
+
+<body>
+    <div id="page-container">
+        <div id="content-wrap">
+            <header class=" grid grid-pad">
+                <div class="col-1-1 header">
+                    <ul id="navigation">
+                        <li><a class="main-title" href="/">Out of Scope</a></li>
+                        <li><a href="/category/blog.html">✒ Blog</a></li>
+                        <li><a href="/pages/whoami.html">$ whoami</a></li>
+                    </ul>
+                </div>
+            </header>
+
+            <div class="grid grid-pad">
+                <section class="col-10-12" id="content">
+<div class="article">
+    <h1>[rhme2 writeups] Secure filesystem</h1>
+    <small> 07/03/2017 on <a href="/category/blog.html">✒ Blog</a></small>
+    <small>| tags : </small>
+    <span class="tag"><a href="/tag/atmega328p.html">atmega328p</a>,</span>
+    <span class="tag"><a href="/tag/cryptography.html">cryptography</a>,</span>
+    <span class="tag"><a href="/tag/rhme2.html">rhme2</a>,</span>
+    <span class="tag"><a href="/tag/avr.html">avr</a></span>
+
+    <div class="article-content">
+        <p>This challenge under the 'crypto' label was introduced to us by the following text:</p>
+<p><img alt="challenge" src="images/secure_fs/challenge.png"></p>
+<h2>0x00 intro</h2>
+<p>After flashing the encrypted hex to our rhme2 board we get the following on the serial console:
+RHMeOS file API
+Files in system:</p>
+<div class="highlight"><pre><span></span><code>drwxrwxr-x remote remote 4096 sep  1 .
+drwxrwxr-x remote remote 4096 sep  1 ..
+-r--r--r-- remote remote   87 sep 14 cat.txt
+-r--r--r-- remote remote   47 sep 16 finances.csv
+-r--r--r-- remote remote    3 sep 14 joke.txt
+-rw------- root   root     37 jan  5 passwd
+-rw------- root   root      8 jan  1 pepper
+
+ Request?
+
+&gt;&gt;
+</code></pre></div>
+
+<p>If we try sending the sample string ( <code>933d86ae930c9a5d6d3a334297d9e72852f05c57#cat.txt:finances.csv</code>) we get:</p>
+<div class="highlight"><pre><span></span><code> cat.txt:
+  A_A
+ (-.-)
+  |-|
+ /   \
+|     |   __
+|  || |  |  \__
+ \_||_/_/
+
+ finances.csv:
+year,profit
+2014,+100%%
+2015,+200%%
+</code></pre></div>
+
+<p>So it looks like we can ask not only for single files but for several files just by appending the requested filenames to the command string, preceded by ':'.</p>
+<p>Of course, for this to work we must update the token at the beginning of the command. Otherwise the board just ignores us, showing no error when receiving incorrect tokens or malformed commands:</p>
+<div class="highlight"><pre><span></span><code> Request?
+
+&gt;&gt;  933d86ae930c9a5d6d3a334297d9e72852f05c57#cat.txt:passwd
+
+ Request?
+
+&gt;&gt; 
+</code></pre></div>
+
+<h2>0x01-- Length extension attack</h2>
+<p>Let's focus on the token then; it looks like a SHA-1 hash:</p>
+<p><img alt="challenge" src="images/secure_fs/hashID.png"></p>
+<p>..so maybe we could read the contents of passwd by performing a length extension attack to compute a correct token given the proper key length (which we do not know).</p>
+<p>From Wikipedia, on length extension attacks:</p>
+<blockquote>
+<blockquote>
+<p>In cryptography and computer security, a length extension attack is a type of attack where an attacker <strong>can use Hash(message1) and the length of message1 to calculate Hash(message1 ∥ message2) for an attacker-controlled message2</strong>. This attack can be used to sign a message when a Merkle–Damgård based hash is misused as a message authentication code, allowing for inclusion of extra information.</p>
+<p>This attack can be done on hashes with construction H(secret ∥ message)[1] when message and the length of secret is known. Algorithms like MD5, SHA-1, and SHA-2 that are based on the Merkle–Damgård construction are susceptible to this kind of attack.</p>
+</blockquote>
+</blockquote>
+<p>From <a href="https://blog.skullsecurity.org/2012/everything-you-need-to-know-about-hash-length-extension-attacks">https://blog.skullsecurity.org/2012/everything-you-need-to-know-about-hash-length-extension-attacks</a>:</p>
+<blockquote>
+<blockquote>
+<p>An application is susceptible to a hash length extension attack if it prepends a secret value to a string, hashes it with a vulnerable algorithm, and entrusts the attacker with both the string and the hash, but not the secret. Then, the server relies on the secret to decide whether or not the data returned later is the same as the original data.</p>
+<p>It turns out, even though the attacker doesn't know the value of the prepended secret, he can still generate a valid hash for {secret || data || attacker_controlled_data}! This is done by simply picking up where the hashing algorithm left off; it turns out, 100% of the state needed to continue a hash is in the output of most hashing algorithms! We simply load that state into the appropriate hash structure and continue hashing.</p>
+</blockquote>
+</blockquote>
+<p><strong>TL;DR:</strong> given a hash that is composed of a string with an unknown prefix, an attacker can append to the string and produce a new hash that still has the unknown prefix. The whole process is perfectly explained on the link above for those interested on the details (if you didn't know about this technique, now you do!).</p>
+<p>There are several tools out there which perform this kind of attack, so I just picked one with python bindings and loop it over the keylength:</p>
+<div class="highlight"><pre><span></span><code><span class="k">for</span><span class="w"> </span><span class="n">i</span><span class="w"> </span><span class="ow">in</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">20</span><span class="p">)</span><span class="err">:</span>
+<span class="w">    </span><span class="n">hash</span><span class="p">,</span><span class="w"> </span><span class="n">payload</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">hashpumpy</span><span class="p">.</span><span class="n">hashpump</span><span class="p">(</span><span class="n">hashes</span><span class="o">[</span><span class="n">testRequest</span><span class="o">]</span><span class="p">,</span><span class="w"> </span><span class="n">testRequest</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;:passwd&#39;</span><span class="p">,</span><span class="w"> </span><span class="n">i</span><span class="p">))</span>
+
+<span class="w">    </span><span class="n">currentPayload</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">payload</span>
+
+<span class="w">    </span><span class="k">print</span><span class="w"> </span><span class="p">(</span><span class="ss">&quot;-----------&gt; i = %d&quot;</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="n">i</span><span class="p">)</span>
+<span class="w">    </span><span class="k">print</span><span class="w"> </span><span class="p">(</span><span class="ss">&quot;-----------&gt; Sending: {}&quot;</span><span class="p">.</span><span class="nf">format</span><span class="p">(</span><span class="n">currentPayload</span><span class="p">))</span>
+
+<span class="w">    </span><span class="nc">time</span><span class="p">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.2</span><span class="p">)</span>
+
+<span class="w">    </span><span class="n">ser</span><span class="p">.</span><span class="k">write</span><span class="p">(</span><span class="n">buildPayload</span><span class="p">(</span><span class="n">hash</span><span class="p">,</span><span class="w"> </span><span class="n">payload</span><span class="p">))</span>
+<span class="w">    </span><span class="n">waitForPrompt</span><span class="p">()</span>
+
+<span class="n">ser</span><span class="p">.</span><span class="k">close</span><span class="p">()</span>
+<span class="n">sys</span><span class="p">.</span><span class="k">exit</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+</code></pre></div>
+
+<p>Running the whole script (which can be found <a href="https://github.com/n0w/ctf-stuff/blob/master/rhme2/secureFS/insecureFS.py">here</a>) yields:</p>
+<p><img alt="success" src="images/secure_fs/success.png"></p>
+<p>After retrieving the flag, I realized there was a hint on the filesize of pepper:</p>
+<div class="highlight"><pre><span></span><code>RHMeOS file API
+Files in system:
+
+drwxrwxr-x remote remote 4096 sep  1 .
+drwxrwxr-x remote remote 4096 sep  1 ..
+-r--r--r-- remote remote   87 sep 14 cat.txt
+-r--r--r-- remote remote   47 sep 16 finances.csv
+-r--r--r-- remote remote    3 sep 14 joke.txt
+-rw------- root   root     37 jan  5 passwd
+-rw------- root   root      8 jan  1 pepper
+
+ Request?
+
+&gt;&gt;
+</code></pre></div>
+
+<p>..luckily both attack and bruteforce techniques were simple enough! :D</p>
+    </div>
+
+
+</div>
+                </section>
+
+                <aside class="col-2-12" id="side">
+
+                    <div class="widget cat">
+                        <h2>Categories</h2>
+                        <div class="cat-link">
+                            <a href="/category/blog.html">✒ Blog</a>
+                        </div>
+                    </div>
+
+
+                    <div class="widget">
+                        <h2>Social</h2>
+                        <div class="cat-link">
+                            <a href="https://www.linkedin.com/in/asuarezbm/"><svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="0 0 448 512"><!--! Font Awesome Free 6.4.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2023 Fonticons, Inc. --><path fill="#1E67CE" d="M416 32H31.9C14.3 32 0 46.5 0 64.3v383.4C0 465.5 14.3 480 31.9 480H416c17.6 0 32-14.5 32-32.3V64.3c0-17.8-14.4-32.3-32-32.3zM135.4 416H69V202.2h66.5V416zm-33.2-243c-21.3 0-38.5-17.3-38.5-38.5S80.9 96 102.2 96c21.2 0 38.5 17.3 38.5 38.5 0 21.3-17.2 38.5-38.5 38.5zm282.1 243h-66.4V312c0-24.8-.5-56.7-34.5-56.7-34.6 0-39.9 27-39.9 54.9V416h-66.4V202.2h63.7v29.2h.9c8.9-16.8 30.6-34.5 62.9-34.5 67.2 0 79.7 44.3 79.7 101.9V416z"/></svg> LinkedIn</a>
+                        </div>
+                        <div class="cat-link">
+                            <a href="https://infosec.exchange/@n0w"><svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="0 0 448 512"><!--! Font Awesome Free 6.4.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2023 Fonticons, Inc. --><path fill="#1E67CE" d="M433 179.11c0-97.2-63.71-125.7-63.71-125.7-62.52-28.7-228.56-28.4-290.48 0 0 0-63.72 28.5-63.72 125.7 0 115.7-6.6 259.4 105.63 289.1 40.51 10.7 75.32 13 103.33 11.4 50.81-2.8 79.32-18.1 79.32-18.1l-1.7-36.9s-36.31 11.4-77.12 10.1c-40.41-1.4-83-4.4-89.63-54a102.54 102.54 0 0 1-.9-13.9c85.63 20.9 158.65 9.1 178.75 6.7 56.12-6.7 105-41.3 111.23-72.9 9.8-49.8 9-121.5 9-121.5zm-75.12 125.2h-46.63v-114.2c0-49.7-64-51.6-64 6.9v62.5h-46.33V197c0-58.5-64-56.6-64-6.9v114.2H90.19c0-122.1-5.2-147.9 18.41-175 25.9-28.9 79.82-30.8 103.83 6.1l11.6 19.5 11.6-19.5c24.11-37.1 78.12-34.8 103.83-6.1 23.71 27.3 18.4 53 18.4 175z"/></svg> Mastodon</a>
+                        </div>
+                        <div class="cat-link">
+                            <a href="https://twitter.com/asuarezbm"><svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="0 0 512 512"><!--! Font Awesome Free 6.4.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2023 Fonticons, Inc. --><path fill="#1E67CE" d="M459.37 151.716c.325 4.548.325 9.097.325 13.645 0 138.72-105.583 298.558-298.558 298.558-59.452 0-114.68-17.219-161.137-47.106 8.447.974 16.568 1.299 25.34 1.299 49.055 0 94.213-16.568 130.274-44.832-46.132-.975-84.792-31.188-98.112-72.772 6.498.974 12.995 1.624 19.818 1.624 9.421 0 18.843-1.3 27.614-3.573-48.081-9.747-84.143-51.98-84.143-102.985v-1.299c13.969 7.797 30.214 12.67 47.431 13.319-28.264-18.843-46.781-51.005-46.781-87.391 0-19.492 5.197-37.36 14.294-52.954 51.655 63.675 129.3 105.258 216.365 109.807-1.624-7.797-2.599-15.918-2.599-24.04 0-57.828 46.782-104.934 104.934-104.934 30.213 0 57.502 12.67 76.67 33.137 23.715-4.548 46.456-13.32 66.599-25.34-7.798 24.366-24.366 44.833-46.132 57.827 21.117-2.273 41.584-8.122 60.426-16.243-14.292 20.791-32.161 39.308-52.628 54.253z"/></svg> Twitter</a>
+                        </div>
+                    </div>
+
+
+                </aside>
+            </div>
+        </div>
+        <footer>
+            <div class="footer">
+ <i>...that's out of scope! — said no attacker ever</i>             </div>
+        </footer>
+    </div>
+</body>
+
+</html>

@@ -1,0 +1,203 @@
+<html>
+
+<head>
+    <title>Out of Scope - [rhme2 writeups] Jumpy
+</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="/theme/css/normalize.css" />
+    <link rel="stylesheet" href="/theme/css/simplegrid.css" />
+    <link rel="stylesheet" href="/theme/css/pygment.css" />
+    <link rel="stylesheet" href="/theme/css/main.css" />
+    <link rel="stylesheet" href="/theme/fonts/fonts.css">
+    <link rel="stylesheet" href="/theme/css/font-awesome.min.css">
+</head>
+
+<body>
+    <div id="page-container">
+        <div id="content-wrap">
+            <header class=" grid grid-pad">
+                <div class="col-1-1 header">
+                    <ul id="navigation">
+                        <li><a class="main-title" href="/">Out of Scope</a></li>
+                        <li><a href="/category/blog.html">✒ Blog</a></li>
+                        <li><a href="/pages/whoami.html">$ whoami</a></li>
+                    </ul>
+                </div>
+            </header>
+
+            <div class="grid grid-pad">
+                <section class="col-10-12" id="content">
+<div class="article">
+    <h1>[rhme2 writeups] Jumpy</h1>
+    <small> 08/03/2017 on <a href="/category/blog.html">✒ Blog</a></small>
+    <small>| tags : </small>
+    <span class="tag"><a href="/tag/reversing.html">reversing</a>,</span>
+    <span class="tag"><a href="/tag/atmega328p.html">atmega328p</a>,</span>
+    <span class="tag"><a href="/tag/rhme2.html">rhme2</a>,</span>
+    <span class="tag"><a href="/tag/avr.html">avr</a>,</span>
+    <span class="tag"><a href="/tag/jumpy.html">jumpy</a></span>
+
+    <div class="article-content">
+        <p><img alt="Challenge" src="https://1.bp.blogspot.com/-l4bXqQAv9ak/WL8I8Gw2ihI/AAAAAAAAAy8/PjY9uQxgjTM1SrhJlC6mPgBfSA9UcmtuQCLcB/s1600/challenge.png"></p>
+<p>For this challenge, we are provided with both encrypted hex to load on the rhme2 board and an unencrypted binary dump that we can run on an emulator or a real Arduino.</p>
+<p><strong>[Disclaimer]</strong>: Always remember to <a href="http://www.atmel.com/Images/Atmel-42735-8-bit-AVR-Microcontroller-ATmega328-328P_Datasheet.pdf">RTFD!</a></p>
+<h2>0x00 -- intro</h2>
+<p>Furthermore, if we have access to a debugWire compatible board (as I did), like the AVR Dragon we can debug the device using the on chip debugger. Debugging Arduino boards is somewhat tricky as for this specific AVR chip JTAG is not supported, but a proprietary debug protocol called debugWire is instead. </p>
+<p>This protocol runs on one single wire (hence the name!) but turns out that the wire happens to be the RESET line, which kind of interferes with how the Arduino is manufactured... Long story short, the reset line from the microcontroller <em>is connected to the usb controller RTS and DTR (to provide easy user programming though the Arduino IDE), to 5V through a 10K pull-up resistor and finally to the ISP and external pin headers and,...</em> just too much stuff to have a reliable signal carrying the debug info back and forth and it may be necessary to cut a trace or apply some (de)soldering skills. </p>
+<p>You can find detailed instructions <a href="https://awtfy.com/2010/02/21/modify-an-arduino-for-debugwire/">here</a>. Fortunately, I had a modified Arduino UNO that was debug-enabled, so I only needed to cut the trace.</p>
+<p>I used <code>radare2</code> for static reverse engineering and Atmel Studio with AVR Dragon and a modified Arduino UNO for debugging.</p>
+<h2>0x01 -- readSerial() and the USART</h2>
+<p>The program asks for input, checks it, and displays <code>'Better luck next time!'</code> on failure. To understand this, we need to examine the USART (Universal Synchronous and Asynchronous serial Receiver and Transmitter) architecture of the microcontroller.</p>
+<p><img alt="AVR diagram" src="images/jumpy/blockDiagram.png"></p>
+<p>The USART (Universal Synchronous and Asynchronous serial Receiver and Transmitter) is just a peripheral connected to the system data bus and in order to interact with it we just load and retrieve data from I/O registers.</p>
+<p><img alt="USART Block Diagram" src="images/jumpy/usart.png"></p>
+<p>After reading several pages of datasheet fun about how USART does work it seems clear that we need to keep track of at least two things:</p>
+<ul>
+<li><code>Receive Complete (RXC) Flag</code> on the UCSRnA Register [Offset: 0xC0]: This flag bit is set when there are unread data in the receive buffer and cleared when the receive buffer is empty (i.e., does not contain any unread data). </li>
+<li><code>USART I/O Data Register 0</code> [Offset: 0xC6]: Reading the UDR0 Register location will return the contents of the Receive Data Buffer Register (RXB).</li>
+</ul>
+<p>That's enough theory! We then need to find a loop-like structure checking against 0xC0 I/O register. Opening the binary file with r2 and after a few moments of crawling, searching and renaming it yields:</p>
+<p><img alt="isSerialAvailable function" src="images/jumpy/isSerialAvailable.png"></p>
+<p>We found a function which loads the contents of the <code>0x00C0</code> I/O register (using Z as a pointer because <code>ld r24,z</code> does <code>r24 ← (Z)</code>: it sets r24 to 0x00 in case we have data in the buffer. We also may have noticed the XREF to this function from 0x02b2:</p>
+<p><img alt="getChar Function" src="images/jumpy/getChar.png"></p>
+<p>And following the XREF from <code>0x2a8</code> we end up in another function (I called it <code>getMyPass</code>) which loops until <code>0x0D</code> or <code>0x0A</code> is received (that is, <code>\r</code> or <code>\n</code>, ending the string).</p>
+<p><img alt="newline" src="images/jumpy/newline.png"></p>
+<h2>0x02 -- debug</h2>
+<p>Now let's go to Atmel Studio and set a BP on <code>0x0000030c</code>; that's where it will jump when a <code>0x0d</code> it's received.</p>
+<p><img alt="bp on string received" src="images/jumpy/bpOnStringReceived.png"></p>
+<p>The array containing our password starts at a fixed memory location: <code>0x012E</code>.</p>
+<p><img alt="passwordStringMemLocation" src="images/jumpy/passwordStringMemLocation.png"></p>
+<p>From there it goes <strong>jumping</strong> (surprise!) between functions. Back to <code>r2</code> then, and after several hours of AVR assembly digging we start to see a pattern: from <code>0x00000324</code> to  <code>0x0000074e</code> there are several functions defined (<code>push r28, push 29... [stuff] ... pop r29, pop 28, ret</code>) and each one of them seems to perform simple math operations on some of our password characters (i.e. fixed memory locations) as follows:</p>
+<p><img alt="check2" src="images/jumpy/check_2.png"></p>
+<p>Take a look at the comments for clarity; the <code>check_2</code> function just retrieves the values of <code>password[7]</code> and <code>password[8]</code> (that is, <code>0x135 = &lt;base&gt;0x12E + &lt;offset&gt;7</code>), adds them together and checks if the result equals <code>0xD3</code>. If the branch is taken (<code>brne</code>) the runtime flag generation code does not get executed. This pattern gets repeated 12 times more, checking against a different constraint each time.</p>
+<h2>0x03 -- re</h2>
+<p>Every function matching the pattern above was renamed as check_<num>, in appearance order from lower to higher addresses:</p>
+<p><img alt="order" src="images/jumpy/order.png"></p>
+<p>The actual execution order is the following:</p>
+<p>check_1 → check_2 → check_13 → check_11 → check_12 → check_6 → check_8 → check_14 → check_4 →check_9 → check_7 → check_3 → check_5 → check_10 → check_15</p>
+<p>And a brief description of every check:</p>
+<ul>
+<li>check_1: Computes entered password length.</li>
+<li>check_2: <code>password[7] + password[8] == 0xD3</code></li>
+<li>check_3: <code>password[12] * len(password) == 0x297</code></li>
+<li>check_4: <code>password[9] + password[10] == 0x8F</code></li>
+<li>check_5: <code>password[4] * password[5] == 0x122F</code></li>
+<li>check_6: <code>password[3] + password[4] == 0x92</code></li>
+<li>check_7: <code>password[10] * password[11] == 0x2873</code></li>
+<li>check_8: <code>password[6] * password[7] == 0x2B0C</code></li>
+<li>check_9: <code>password[1] + password[2] == 0xA7</code></li>
+<li>check_10: <code>password[10] + password[12] == 0xA0</code></li>
+<li>check_11: <code>password[0] * password[1] == 0x13B7</code></li>
+<li>check_12: <code>password[2] * password[3] == 0x1782</code></li>
+<li>check_13: <code>password[8] * password[9] == 0x15C0</code></li>
+<li>check_14: <code>password[5] + password[6] == 0xA5</code></li>
+<li>check_15: Checks if every earlier step was taken properly.</li>
+</ul>
+<p>At first I tried to solve it with pen and paper, but my head almost blew up from such hardcore math and ended up writing a python script:</p>
+<div class="highlight"><pre><span></span><code><span class="n">password</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="n">password</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mh">0x67</span>
+
+<span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">13</span><span class="p">):</span>
+    <span class="k">for</span> <span class="n">z</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">256</span><span class="p">):</span>
+        <span class="c1">#print (&quot;## --- Current: {} --#&quot;.format(z))</span>
+
+        <span class="k">if</span> <span class="n">z</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">z</span> <span class="o">==</span> <span class="mi">10</span> <span class="ow">or</span> <span class="n">z</span> <span class="o">==</span> <span class="mi">13</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">current</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="s2">&quot;B&quot;</span><span class="p">,</span> <span class="n">z</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">z</span> <span class="o">==</span> <span class="mh">0x13B7</span><span class="p">:</span>
+                <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span>
+
+        <span class="k">elif</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">z</span> <span class="o">==</span> <span class="mh">0xA7</span><span class="p">:</span>
+                <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span>
+
+        <span class="k">elif</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">z</span> <span class="o">==</span> <span class="mh">0x1782</span><span class="p">:</span>
+                <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span>
+
+        <span class="k">elif</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">z</span> <span class="o">==</span> <span class="mh">0x92</span><span class="p">:</span>
+                <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span>
+
+        <span class="k">elif</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">4</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">z</span> <span class="o">==</span> <span class="mh">0x122F</span><span class="p">:</span>
+                <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span>
+
+        <span class="k">elif</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">5</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">z</span> <span class="o">==</span> <span class="mh">0xA5</span><span class="p">:</span>
+                <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span>
+
+        <span class="k">elif</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">6</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">z</span> <span class="o">==</span> <span class="mh">0x2B0C</span><span class="p">:</span>
+                <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span>
+
+        <span class="k">elif</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">7</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">z</span> <span class="o">==</span> <span class="mh">0xD3</span><span class="p">:</span>
+                <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span>
+
+        <span class="k">elif</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">8</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">z</span> <span class="o">==</span> <span class="mh">0x15C0</span><span class="p">:</span>
+                <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span>
+
+        <span class="k">elif</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">9</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">z</span> <span class="o">==</span> <span class="mh">0x8F</span><span class="p">:</span>
+                <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span>
+
+        <span class="k">elif</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">10</span><span class="p">:</span>
+            <span class="k">if</span> <span class="mi">13</span> <span class="o">*</span> <span class="n">z</span> <span class="o">==</span> <span class="mh">0x297</span><span class="p">:</span>
+                <span class="n">password</span><span class="p">[</span><span class="mi">12</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span>
+
+        <span class="k">elif</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">11</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">password</span><span class="p">[</span><span class="mi">12</span><span class="p">]</span> <span class="o">+</span> <span class="n">z</span> <span class="o">==</span> <span class="mh">0xA0</span><span class="p">:</span>
+                <span class="n">password</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">z</span>
+</code></pre></div>
+
+<p><img alt="success!" src="images/jumpy/success.png"></p>
+<p>The password turned out to be <code>g1v3_1t_t0_m3</code> yeah! :D</p>
+<p>So that was it! It was really fun and I did learned a lot of AVR internals!</p>
+<h2>0x04 - greetz and thnx</h2>
+<p>Special thanks to <a href="https://twitter.com/javierprtd">soez</a> and <a href="https://twitter.com/h4ng3r">h4ng3r</a> for tips and tricks! :D</p>
+    </div>
+
+
+</div>
+                </section>
+
+                <aside class="col-2-12" id="side">
+
+                    <div class="widget cat">
+                        <h2>Categories</h2>
+                        <div class="cat-link">
+                            <a href="/category/blog.html">✒ Blog</a>
+                        </div>
+                    </div>
+
+
+                    <div class="widget">
+                        <h2>Social</h2>
+                        <div class="cat-link">
+                            <a href="https://www.linkedin.com/in/asuarezbm/"><svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="0 0 448 512"><!--! Font Awesome Free 6.4.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2023 Fonticons, Inc. --><path fill="#1E67CE" d="M416 32H31.9C14.3 32 0 46.5 0 64.3v383.4C0 465.5 14.3 480 31.9 480H416c17.6 0 32-14.5 32-32.3V64.3c0-17.8-14.4-32.3-32-32.3zM135.4 416H69V202.2h66.5V416zm-33.2-243c-21.3 0-38.5-17.3-38.5-38.5S80.9 96 102.2 96c21.2 0 38.5 17.3 38.5 38.5 0 21.3-17.2 38.5-38.5 38.5zm282.1 243h-66.4V312c0-24.8-.5-56.7-34.5-56.7-34.6 0-39.9 27-39.9 54.9V416h-66.4V202.2h63.7v29.2h.9c8.9-16.8 30.6-34.5 62.9-34.5 67.2 0 79.7 44.3 79.7 101.9V416z"/></svg> LinkedIn</a>
+                        </div>
+                        <div class="cat-link">
+                            <a href="https://infosec.exchange/@n0w"><svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="0 0 448 512"><!--! Font Awesome Free 6.4.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2023 Fonticons, Inc. --><path fill="#1E67CE" d="M433 179.11c0-97.2-63.71-125.7-63.71-125.7-62.52-28.7-228.56-28.4-290.48 0 0 0-63.72 28.5-63.72 125.7 0 115.7-6.6 259.4 105.63 289.1 40.51 10.7 75.32 13 103.33 11.4 50.81-2.8 79.32-18.1 79.32-18.1l-1.7-36.9s-36.31 11.4-77.12 10.1c-40.41-1.4-83-4.4-89.63-54a102.54 102.54 0 0 1-.9-13.9c85.63 20.9 158.65 9.1 178.75 6.7 56.12-6.7 105-41.3 111.23-72.9 9.8-49.8 9-121.5 9-121.5zm-75.12 125.2h-46.63v-114.2c0-49.7-64-51.6-64 6.9v62.5h-46.33V197c0-58.5-64-56.6-64-6.9v114.2H90.19c0-122.1-5.2-147.9 18.41-175 25.9-28.9 79.82-30.8 103.83 6.1l11.6 19.5 11.6-19.5c24.11-37.1 78.12-34.8 103.83-6.1 23.71 27.3 18.4 53 18.4 175z"/></svg> Mastodon</a>
+                        </div>
+                        <div class="cat-link">
+                            <a href="https://twitter.com/asuarezbm"><svg xmlns="http://www.w3.org/2000/svg" height="1em" viewBox="0 0 512 512"><!--! Font Awesome Free 6.4.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2023 Fonticons, Inc. --><path fill="#1E67CE" d="M459.37 151.716c.325 4.548.325 9.097.325 13.645 0 138.72-105.583 298.558-298.558 298.558-59.452 0-114.68-17.219-161.137-47.106 8.447.974 16.568 1.299 25.34 1.299 49.055 0 94.213-16.568 130.274-44.832-46.132-.975-84.792-31.188-98.112-72.772 6.498.974 12.995 1.624 19.818 1.624 9.421 0 18.843-1.3 27.614-3.573-48.081-9.747-84.143-51.98-84.143-102.985v-1.299c13.969 7.797 30.214 12.67 47.431 13.319-28.264-18.843-46.781-51.005-46.781-87.391 0-19.492 5.197-37.36 14.294-52.954 51.655 63.675 129.3 105.258 216.365 109.807-1.624-7.797-2.599-15.918-2.599-24.04 0-57.828 46.782-104.934 104.934-104.934 30.213 0 57.502 12.67 76.67 33.137 23.715-4.548 46.456-13.32 66.599-25.34-7.798 24.366-24.366 44.833-46.132 57.827 21.117-2.273 41.584-8.122 60.426-16.243-14.292 20.791-32.161 39.308-52.628 54.253z"/></svg> Twitter</a>
+                        </div>
+                    </div>
+
+
+                </aside>
+            </div>
+        </div>
+        <footer>
+            <div class="footer">
+ <i>...that's out of scope! — said no attacker ever</i>             </div>
+        </footer>
+    </div>
+</body>
+
+</html>
