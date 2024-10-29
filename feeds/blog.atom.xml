@@ -1,0 +1,640 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"><title>Out of Scope - ✒ Blog</title><link href="https://blog.outofscope.lol/" rel="alternate"></link><link href="https://blog.outofscope.lol/feeds/blog.atom.xml" rel="self"></link><id>https://blog.outofscope.lol/</id><updated>2017-04-01T20:19:00+02:00</updated><entry><title>Dumping a flash memory over SPI</title><link href="https://blog.outofscope.lol/dumping-flash-memory-over-spi.html" rel="alternate"></link><published>2017-04-01T20:19:00+02:00</published><updated>2017-04-01T20:19:00+02:00</updated><author><name>Angel SB Martin</name></author><id>tag:blog.outofscope.lol,2017-04-01:/dumping-flash-memory-over-spi.html</id><summary type="html">&lt;p&gt;Dumping the contents of a flash chip is not really complex or hard; as usual the devil is in the details. It just requires having the proper hardware to interface the chip and basic (de)soldering skills. &lt;/p&gt;
+&lt;p&gt;There are a lot of different flash ICs commercially available, as they are …&lt;/p&gt;</summary><content type="html">&lt;p&gt;Dumping the contents of a flash chip is not really complex or hard; as usual the devil is in the details. It just requires having the proper hardware to interface the chip and basic (de)soldering skills. &lt;/p&gt;
+&lt;p&gt;There are a lot of different flash ICs commercially available, as they are integral elements of every consumer grade electronic device today; for this article we'll be using a discarded old DSL cheap router as an example.&lt;/p&gt;
+&lt;p&gt;After removing screws, covers and whatnot, we take a close look at the PCB looking for flash chips }:D &lt;/p&gt;
+&lt;p&gt;Now we need to figure out the pinout and how to interface with the device... Let's google that inscription (FL128SAIF00) and download the IC datasheet on the first hit:  &lt;/p&gt;
+&lt;p&gt;&lt;img _="," alt="" src="images/flash_dump/datasheet.png" style="display: block; margin-left: auto; margin-right: auto;" width="100%"&gt;&lt;/p&gt;
+&lt;h3&gt;...but wait, wtf is SPI?&lt;/h3&gt;
+&lt;p&gt;Well, as &lt;a href="https://en.wikipedia.org/wiki/Serial_Peripheral_Interface_Bus"&gt;Wikipedia&lt;/a&gt; details, the Serial Peripheral Interface bus (SPI) is a synchronous serial communication interface specification used for short distance communication, primarily in embedded systems. The interface was developed by Motorola in the late eighties and has become a &lt;em&gt;de facto&lt;/em&gt; standard.&lt;/p&gt;
+&lt;p&gt;There are five logic signals for the interface:&lt;/p&gt;
+&lt;p&gt;&lt;img src="images/flash_dump/spi.png" width="50%" style="float: left; margin: 0 2rem 1rem 0;"&gt;&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;SCLK&lt;/strong&gt;: Serial Clock (output from master).&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;MOSI&lt;/strong&gt;: Master Output Slave Input, or Master Out Slave In (data output from master).  &lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;MISO&lt;/strong&gt;: Master Input Slave Output, or Master In Slave Out (data output from slave).  &lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;SDIO&lt;/strong&gt;: Serial Data I/O (bidirectional I/O)  &lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;SS&lt;/strong&gt;: Slave Select (often active low, output from master).  &lt;/p&gt;
+&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;Easy enough! There is a master clock, one or two data signals (depending on the implementation) and a last one to be able to signal communications to specific devices in case we are connecting several ones to the bus. &lt;/p&gt;
+&lt;p&gt;For clarity, I took the pinout from the datasheet and (badly) superimposed it on the IC photo:  &lt;/p&gt;
+&lt;p&gt;&lt;img _="," alt="" src="images/flash_dump/pinout.jpg" style="display: block; margin-left: auto; margin-right: auto;" width="70%"&gt;&lt;/p&gt;
+&lt;p&gt;Now, to interface with the chip we must connect Vcc and GND to power it up, SI and SO to write to and read from, SCK to drive the clock, CS to select the chip and finally we'll drive HOLD and WP high.&lt;/p&gt;
+&lt;p&gt;&lt;img _="," alt="" src="images/flash_dump/soldered.jpg" style="display: block; margin-left: auto; margin-right: auto;" width="100%"&gt;&lt;/p&gt;
+&lt;p&gt;At first I tried to solder cables directly to the IC without desoldering it and, though I was able to start a initial conversation, I couldn't read anything past that. As I had faced that problem before, I suspected that maybe I was powering anything else apart from the flash chip that was preventing me from talking with it (i.e. main processor).&lt;/p&gt;
+&lt;p&gt;I connected a probe to the processor's VCC rail, set the trigger to ~2V and this happened just right after issuing the first read command:&lt;/p&gt;
+&lt;p&gt;&lt;img _="," alt="" src="images/flash_dump/scope.png" style="display: block; margin-left: auto; margin-right: auto;" width="100%"&gt;&lt;/p&gt;
+&lt;p&gt;Looks like I was powering the main uC indeed, which in turn was trying to access the flash IC at the same time as I was. I tried desoldering some pins but I eneded up just desoldering the chip anyway:&lt;/p&gt;
+&lt;p&gt;&lt;img _="," alt="" src="images/flash_dump/desoldered.jpg" style="display: block; margin-left: auto; margin-right: auto;" width="100%"&gt;&lt;/p&gt;
+&lt;p&gt;Now we can just use &lt;a href="https://www.flashrom.org/Flashrom"&gt;flashrom&lt;/a&gt; with any of the compatible readers (I used a &lt;a href="http://dangerousprototypes.com/blog/bus-pirate-manual/"&gt;BusPirate&lt;/a&gt;) to dump the contents issuing the following command:  &lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;code&gt;./flashrom -p buspirate_spi:dev=/dev/ttyUSB0 -c S25FL128P......0 --verbose -r dump.bin
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;img _="," alt="" src="images/flash_dump/dump.png" style="display: block; margin-left: auto; margin-right: auto;" width="100%"&gt;&lt;/p&gt;
+&lt;p&gt;Then we can use our favorite binary search tool with it!  &lt;/p&gt;
+&lt;p&gt;&lt;img _="," alt="" src="images/flash_dump/binwalk.png" style="display: block; margin-left: auto; margin-right: auto;" width="100%"&gt;&lt;/p&gt;</content><category term="✒ Blog"></category><category term="hardware hacking"></category><category term="electronics"></category><category term="reverse-engineering"></category></entry><entry><title>[rhme2 writeups] Jumpy</title><link href="https://blog.outofscope.lol/rhme2-writeups-jumpy.html" rel="alternate"></link><published>2017-03-08T15:07:00+01:00</published><updated>2017-03-08T15:07:00+01:00</updated><author><name>Angel SB Martin</name></author><id>tag:blog.outofscope.lol,2017-03-08:/rhme2-writeups-jumpy.html</id><summary type="html">&lt;p&gt;&lt;img alt="Challenge" src="https://1.bp.blogspot.com/-l4bXqQAv9ak/WL8I8Gw2ihI/AAAAAAAAAy8/PjY9uQxgjTM1SrhJlC6mPgBfSA9UcmtuQCLcB/s1600/challenge.png"&gt;&lt;/p&gt;
+&lt;p&gt;For this challenge, we are provided with both encrypted hex to load on the rhme2 board and an unencrypted binary dump that we can run on an emulator or a real Arduino.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;[Disclaimer]&lt;/strong&gt;: Always remember to &lt;a href="http://www.atmel.com/Images/Atmel-42735-8-bit-AVR-Microcontroller-ATmega328-328P_Datasheet.pdf"&gt;RTFD!&lt;/a&gt;&lt;/p&gt;
+&lt;h2&gt;0x00 -- intro&lt;/h2&gt;
+&lt;p&gt;Furthermore, if we have access to a debugWire compatible board (as …&lt;/p&gt;</summary><content type="html">&lt;p&gt;&lt;img alt="Challenge" src="https://1.bp.blogspot.com/-l4bXqQAv9ak/WL8I8Gw2ihI/AAAAAAAAAy8/PjY9uQxgjTM1SrhJlC6mPgBfSA9UcmtuQCLcB/s1600/challenge.png"&gt;&lt;/p&gt;
+&lt;p&gt;For this challenge, we are provided with both encrypted hex to load on the rhme2 board and an unencrypted binary dump that we can run on an emulator or a real Arduino.&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;[Disclaimer]&lt;/strong&gt;: Always remember to &lt;a href="http://www.atmel.com/Images/Atmel-42735-8-bit-AVR-Microcontroller-ATmega328-328P_Datasheet.pdf"&gt;RTFD!&lt;/a&gt;&lt;/p&gt;
+&lt;h2&gt;0x00 -- intro&lt;/h2&gt;
+&lt;p&gt;Furthermore, if we have access to a debugWire compatible board (as I did), like the AVR Dragon we can debug the device using the on chip debugger. Debugging Arduino boards is somewhat tricky as for this specific AVR chip JTAG is not supported, but a proprietary debug protocol called debugWire is instead. &lt;/p&gt;
+&lt;p&gt;This protocol runs on one single wire (hence the name!) but turns out that the wire happens to be the RESET line, which kind of interferes with how the Arduino is manufactured... Long story short, the reset line from the microcontroller &lt;em&gt;is connected to the usb controller RTS and DTR (to provide easy user programming though the Arduino IDE), to 5V through a 10K pull-up resistor and finally to the ISP and external pin headers and,...&lt;/em&gt; just too much stuff to have a reliable signal carrying the debug info back and forth and it may be necessary to cut a trace or apply some (de)soldering skills. &lt;/p&gt;
+&lt;p&gt;You can find detailed instructions &lt;a href="https://awtfy.com/2010/02/21/modify-an-arduino-for-debugwire/"&gt;here&lt;/a&gt;. Fortunately, I had a modified Arduino UNO that was debug-enabled, so I only needed to cut the trace.&lt;/p&gt;
+&lt;p&gt;I used &lt;code&gt;radare2&lt;/code&gt; for static reverse engineering and Atmel Studio with AVR Dragon and a modified Arduino UNO for debugging.&lt;/p&gt;
+&lt;h2&gt;0x01 -- readSerial() and the USART&lt;/h2&gt;
+&lt;p&gt;The program asks for input, checks it, and displays &lt;code&gt;'Better luck next time!'&lt;/code&gt; on failure. To understand this, we need to examine the USART (Universal Synchronous and Asynchronous serial Receiver and Transmitter) architecture of the microcontroller.&lt;/p&gt;
+&lt;p&gt;&lt;img alt="AVR diagram" src="images/jumpy/blockDiagram.png"&gt;&lt;/p&gt;
+&lt;p&gt;The USART (Universal Synchronous and Asynchronous serial Receiver and Transmitter) is just a peripheral connected to the system data bus and in order to interact with it we just load and retrieve data from I/O registers.&lt;/p&gt;
+&lt;p&gt;&lt;img alt="USART Block Diagram" src="images/jumpy/usart.png"&gt;&lt;/p&gt;
+&lt;p&gt;After reading several pages of datasheet fun about how USART does work it seems clear that we need to keep track of at least two things:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;Receive Complete (RXC) Flag&lt;/code&gt; on the UCSRnA Register [Offset: 0xC0]: This flag bit is set when there are unread data in the receive buffer and cleared when the receive buffer is empty (i.e., does not contain any unread data). &lt;/li&gt;
+&lt;li&gt;&lt;code&gt;USART I/O Data Register 0&lt;/code&gt; [Offset: 0xC6]: Reading the UDR0 Register location will return the contents of the Receive Data Buffer Register (RXB).&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;That's enough theory! We then need to find a loop-like structure checking against 0xC0 I/O register. Opening the binary file with r2 and after a few moments of crawling, searching and renaming it yields:&lt;/p&gt;
+&lt;p&gt;&lt;img alt="isSerialAvailable function" src="images/jumpy/isSerialAvailable.png"&gt;&lt;/p&gt;
+&lt;p&gt;We found a function which loads the contents of the &lt;code&gt;0x00C0&lt;/code&gt; I/O register (using Z as a pointer because &lt;code&gt;ld r24,z&lt;/code&gt; does &lt;code&gt;r24 ← (Z)&lt;/code&gt;: it sets r24 to 0x00 in case we have data in the buffer. We also may have noticed the XREF to this function from 0x02b2:&lt;/p&gt;
+&lt;p&gt;&lt;img alt="getChar Function" src="images/jumpy/getChar.png"&gt;&lt;/p&gt;
+&lt;p&gt;And following the XREF from &lt;code&gt;0x2a8&lt;/code&gt; we end up in another function (I called it &lt;code&gt;getMyPass&lt;/code&gt;) which loops until &lt;code&gt;0x0D&lt;/code&gt; or &lt;code&gt;0x0A&lt;/code&gt; is received (that is, &lt;code&gt;\r&lt;/code&gt; or &lt;code&gt;\n&lt;/code&gt;, ending the string).&lt;/p&gt;
+&lt;p&gt;&lt;img alt="newline" src="images/jumpy/newline.png"&gt;&lt;/p&gt;
+&lt;h2&gt;0x02 -- debug&lt;/h2&gt;
+&lt;p&gt;Now let's go to Atmel Studio and set a BP on &lt;code&gt;0x0000030c&lt;/code&gt;; that's where it will jump when a &lt;code&gt;0x0d&lt;/code&gt; it's received.&lt;/p&gt;
+&lt;p&gt;&lt;img alt="bp on string received" src="images/jumpy/bpOnStringReceived.png"&gt;&lt;/p&gt;
+&lt;p&gt;The array containing our password starts at a fixed memory location: &lt;code&gt;0x012E&lt;/code&gt;.&lt;/p&gt;
+&lt;p&gt;&lt;img alt="passwordStringMemLocation" src="images/jumpy/passwordStringMemLocation.png"&gt;&lt;/p&gt;
+&lt;p&gt;From there it goes &lt;strong&gt;jumping&lt;/strong&gt; (surprise!) between functions. Back to &lt;code&gt;r2&lt;/code&gt; then, and after several hours of AVR assembly digging we start to see a pattern: from &lt;code&gt;0x00000324&lt;/code&gt; to  &lt;code&gt;0x0000074e&lt;/code&gt; there are several functions defined (&lt;code&gt;push r28, push 29... [stuff] ... pop r29, pop 28, ret&lt;/code&gt;) and each one of them seems to perform simple math operations on some of our password characters (i.e. fixed memory locations) as follows:&lt;/p&gt;
+&lt;p&gt;&lt;img alt="check2" src="images/jumpy/check_2.png"&gt;&lt;/p&gt;
+&lt;p&gt;Take a look at the comments for clarity; the &lt;code&gt;check_2&lt;/code&gt; function just retrieves the values of &lt;code&gt;password[7]&lt;/code&gt; and &lt;code&gt;password[8]&lt;/code&gt; (that is, &lt;code&gt;0x135 = &amp;lt;base&amp;gt;0x12E + &amp;lt;offset&amp;gt;7&lt;/code&gt;), adds them together and checks if the result equals &lt;code&gt;0xD3&lt;/code&gt;. If the branch is taken (&lt;code&gt;brne&lt;/code&gt;) the runtime flag generation code does not get executed. This pattern gets repeated 12 times more, checking against a different constraint each time.&lt;/p&gt;
+&lt;h2&gt;0x03 -- re&lt;/h2&gt;
+&lt;p&gt;Every function matching the pattern above was renamed as check_&lt;num&gt;, in appearance order from lower to higher addresses:&lt;/p&gt;
+&lt;p&gt;&lt;img alt="order" src="images/jumpy/order.png"&gt;&lt;/p&gt;
+&lt;p&gt;The actual execution order is the following:&lt;/p&gt;
+&lt;p&gt;check_1 → check_2 → check_13 → check_11 → check_12 → check_6 → check_8 → check_14 → check_4 →check_9 → check_7 → check_3 → check_5 → check_10 → check_15&lt;/p&gt;
+&lt;p&gt;And a brief description of every check:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;check_1: Computes entered password length.&lt;/li&gt;
+&lt;li&gt;check_2: &lt;code&gt;password[7] + password[8] == 0xD3&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;check_3: &lt;code&gt;password[12] * len(password) == 0x297&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;check_4: &lt;code&gt;password[9] + password[10] == 0x8F&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;check_5: &lt;code&gt;password[4] * password[5] == 0x122F&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;check_6: &lt;code&gt;password[3] + password[4] == 0x92&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;check_7: &lt;code&gt;password[10] * password[11] == 0x2873&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;check_8: &lt;code&gt;password[6] * password[7] == 0x2B0C&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;check_9: &lt;code&gt;password[1] + password[2] == 0xA7&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;check_10: &lt;code&gt;password[10] + password[12] == 0xA0&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;check_11: &lt;code&gt;password[0] * password[1] == 0x13B7&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;check_12: &lt;code&gt;password[2] * password[3] == 0x1782&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;check_13: &lt;code&gt;password[8] * password[9] == 0x15C0&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;check_14: &lt;code&gt;password[5] + password[6] == 0xA5&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;check_15: Checks if every earlier step was taken properly.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;At first I tried to solve it with pen and paper, but my head almost blew up from such hardcore math and ended up writing a python script:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;code&gt;&lt;span class="n"&gt;password&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="p"&gt;{}&lt;/span&gt;
+&lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mh"&gt;0x67&lt;/span&gt;
+
+&lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;i&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="nb"&gt;range&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;13&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+    &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="nb"&gt;range&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;256&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+        &lt;span class="c1"&gt;#print (&amp;quot;## --- Current: {} --#&amp;quot;.format(z))&lt;/span&gt;
+
+        &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt; &lt;span class="ow"&gt;or&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mi"&gt;10&lt;/span&gt; &lt;span class="ow"&gt;or&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mi"&gt;13&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="k"&gt;continue&lt;/span&gt;
+        &lt;span class="k"&gt;else&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="n"&gt;current&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;struct&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;pack&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;B&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+        &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;i&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;*&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mh"&gt;0x13B7&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+                &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="o"&gt;+&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt;
+
+        &lt;span class="k"&gt;elif&lt;/span&gt; &lt;span class="n"&gt;i&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mh"&gt;0xA7&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+                &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="o"&gt;+&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt;
+
+        &lt;span class="k"&gt;elif&lt;/span&gt; &lt;span class="n"&gt;i&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;*&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mh"&gt;0x1782&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+                &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="o"&gt;+&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt;
+
+        &lt;span class="k"&gt;elif&lt;/span&gt; &lt;span class="n"&gt;i&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mi"&gt;3&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mh"&gt;0x92&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+                &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="o"&gt;+&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt;
+
+        &lt;span class="k"&gt;elif&lt;/span&gt; &lt;span class="n"&gt;i&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mi"&gt;4&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;*&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mh"&gt;0x122F&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+                &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="o"&gt;+&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt;
+
+        &lt;span class="k"&gt;elif&lt;/span&gt; &lt;span class="n"&gt;i&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mi"&gt;5&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mh"&gt;0xA5&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+                &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="o"&gt;+&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt;
+
+        &lt;span class="k"&gt;elif&lt;/span&gt; &lt;span class="n"&gt;i&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mi"&gt;6&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;*&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mh"&gt;0x2B0C&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+                &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="o"&gt;+&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt;
+
+        &lt;span class="k"&gt;elif&lt;/span&gt; &lt;span class="n"&gt;i&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mi"&gt;7&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mh"&gt;0xD3&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+                &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="o"&gt;+&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt;
+
+        &lt;span class="k"&gt;elif&lt;/span&gt; &lt;span class="n"&gt;i&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mi"&gt;8&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;*&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mh"&gt;0x15C0&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+                &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="o"&gt;+&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt;
+
+        &lt;span class="k"&gt;elif&lt;/span&gt; &lt;span class="n"&gt;i&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mi"&gt;9&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mh"&gt;0x8F&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+                &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="o"&gt;+&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt;
+
+        &lt;span class="k"&gt;elif&lt;/span&gt; &lt;span class="n"&gt;i&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mi"&gt;10&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="mi"&gt;13&lt;/span&gt; &lt;span class="o"&gt;*&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mh"&gt;0x297&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+                &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="mi"&gt;12&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt;
+
+        &lt;span class="k"&gt;elif&lt;/span&gt; &lt;span class="n"&gt;i&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mi"&gt;11&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="mi"&gt;12&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mh"&gt;0xA0&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+                &lt;span class="n"&gt;password&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;z&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;img alt="success!" src="images/jumpy/success.png"&gt;&lt;/p&gt;
+&lt;p&gt;The password turned out to be &lt;code&gt;g1v3_1t_t0_m3&lt;/code&gt; yeah! :D&lt;/p&gt;
+&lt;p&gt;So that was it! It was really fun and I did learned a lot of AVR internals!&lt;/p&gt;
+&lt;h2&gt;0x04 - greetz and thnx&lt;/h2&gt;
+&lt;p&gt;Special thanks to &lt;a href="https://twitter.com/javierprtd"&gt;soez&lt;/a&gt; and &lt;a href="https://twitter.com/h4ng3r"&gt;h4ng3r&lt;/a&gt; for tips and tricks! :D&lt;/p&gt;</content><category term="✒ Blog"></category><category term="reversing"></category><category term="atmega328p"></category><category term="rhme2"></category><category term="avr"></category><category term="jumpy"></category></entry><entry><title>[rhme2 writeups] Secure filesystem</title><link href="https://blog.outofscope.lol/rhme2-writeups-secure-filesystem.html" rel="alternate"></link><published>2017-03-07T13:28:00+01:00</published><updated>2017-03-07T13:28:00+01:00</updated><author><name>Angel SB Martin</name></author><id>tag:blog.outofscope.lol,2017-03-07:/rhme2-writeups-secure-filesystem.html</id><summary type="html">&lt;p&gt;This challenge under the 'crypto' label was introduced to us by the following text:&lt;/p&gt;
+&lt;p&gt;&lt;img alt="challenge" src="images/secure_fs/challenge.png"&gt;&lt;/p&gt;
+&lt;h2&gt;0x00 intro&lt;/h2&gt;
+&lt;p&gt;After flashing the encrypted hex to our rhme2 board we get the following on the serial console:
+RHMeOS file API
+Files in system:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;code&gt;drwxrwxr-x remote remote 4096 sep  1 .
+drwxrwxr-x remote remote 4096 sep …&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;</summary><content type="html">&lt;p&gt;This challenge under the 'crypto' label was introduced to us by the following text:&lt;/p&gt;
+&lt;p&gt;&lt;img alt="challenge" src="images/secure_fs/challenge.png"&gt;&lt;/p&gt;
+&lt;h2&gt;0x00 intro&lt;/h2&gt;
+&lt;p&gt;After flashing the encrypted hex to our rhme2 board we get the following on the serial console:
+RHMeOS file API
+Files in system:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;code&gt;drwxrwxr-x remote remote 4096 sep  1 .
+drwxrwxr-x remote remote 4096 sep  1 ..
+-r--r--r-- remote remote   87 sep 14 cat.txt
+-r--r--r-- remote remote   47 sep 16 finances.csv
+-r--r--r-- remote remote    3 sep 14 joke.txt
+-rw------- root   root     37 jan  5 passwd
+-rw------- root   root      8 jan  1 pepper
+
+ Request?
+
+&amp;gt;&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;If we try sending the sample string ( &lt;code&gt;933d86ae930c9a5d6d3a334297d9e72852f05c57#cat.txt:finances.csv&lt;/code&gt;) we get:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;code&gt; cat.txt:
+  A_A
+ (-.-)
+  |-|
+ /   \
+|     |   __
+|  || |  |  \__
+ \_||_/_/
+
+ finances.csv:
+year,profit
+2014,+100%%
+2015,+200%%
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;So it looks like we can ask not only for single files but for several files just by appending the requested filenames to the command string, preceded by ':'.&lt;/p&gt;
+&lt;p&gt;Of course, for this to work we must update the token at the beginning of the command. Otherwise the board just ignores us, showing no error when receiving incorrect tokens or malformed commands:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;code&gt; Request?
+
+&amp;gt;&amp;gt;  933d86ae930c9a5d6d3a334297d9e72852f05c57#cat.txt:passwd
+
+ Request?
+
+&amp;gt;&amp;gt; 
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;h2&gt;0x01-- Length extension attack&lt;/h2&gt;
+&lt;p&gt;Let's focus on the token then; it looks like a SHA-1 hash:&lt;/p&gt;
+&lt;p&gt;&lt;img alt="challenge" src="images/secure_fs/hashID.png"&gt;&lt;/p&gt;
+&lt;p&gt;..so maybe we could read the contents of passwd by performing a length extension attack to compute a correct token given the proper key length (which we do not know).&lt;/p&gt;
+&lt;p&gt;From Wikipedia, on length extension attacks:&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;blockquote&gt;
+&lt;p&gt;In cryptography and computer security, a length extension attack is a type of attack where an attacker &lt;strong&gt;can use Hash(message1) and the length of message1 to calculate Hash(message1 ∥ message2) for an attacker-controlled message2&lt;/strong&gt;. This attack can be used to sign a message when a Merkle–Damgård based hash is misused as a message authentication code, allowing for inclusion of extra information.&lt;/p&gt;
+&lt;p&gt;This attack can be done on hashes with construction H(secret ∥ message)[1] when message and the length of secret is known. Algorithms like MD5, SHA-1, and SHA-2 that are based on the Merkle–Damgård construction are susceptible to this kind of attack.&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;From &lt;a href="https://blog.skullsecurity.org/2012/everything-you-need-to-know-about-hash-length-extension-attacks"&gt;https://blog.skullsecurity.org/2012/everything-you-need-to-know-about-hash-length-extension-attacks&lt;/a&gt;:&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;blockquote&gt;
+&lt;p&gt;An application is susceptible to a hash length extension attack if it prepends a secret value to a string, hashes it with a vulnerable algorithm, and entrusts the attacker with both the string and the hash, but not the secret. Then, the server relies on the secret to decide whether or not the data returned later is the same as the original data.&lt;/p&gt;
+&lt;p&gt;It turns out, even though the attacker doesn't know the value of the prepended secret, he can still generate a valid hash for {secret || data || attacker_controlled_data}! This is done by simply picking up where the hashing algorithm left off; it turns out, 100% of the state needed to continue a hash is in the output of most hashing algorithms! We simply load that state into the appropriate hash structure and continue hashing.&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;&lt;strong&gt;TL;DR:&lt;/strong&gt; given a hash that is composed of a string with an unknown prefix, an attacker can append to the string and produce a new hash that still has the unknown prefix. The whole process is perfectly explained on the link above for those interested on the details (if you didn't know about this technique, now you do!).&lt;/p&gt;
+&lt;p&gt;There are several tools out there which perform this kind of attack, so I just picked one with python bindings and loop it over the keylength:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;code&gt;&lt;span class="k"&gt;for&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="ow"&gt;in&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="k"&gt;range&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="mi"&gt;20&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;&lt;span class="err"&gt;:&lt;/span&gt;
+&lt;span class="w"&gt;    &lt;/span&gt;&lt;span class="n"&gt;hash&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="n"&gt;payload&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;hashpumpy&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="n"&gt;hashpump&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;hashes&lt;/span&gt;&lt;span class="o"&gt;[&lt;/span&gt;&lt;span class="n"&gt;testRequest&lt;/span&gt;&lt;span class="o"&gt;]&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="n"&gt;testRequest&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;:passwd&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="p"&gt;))&lt;/span&gt;
+
+&lt;span class="w"&gt;    &lt;/span&gt;&lt;span class="n"&gt;currentPayload&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="n"&gt;payload&lt;/span&gt;
+
+&lt;span class="w"&gt;    &lt;/span&gt;&lt;span class="k"&gt;print&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="ss"&gt;&amp;quot;-----------&amp;gt; i = %d&amp;quot;&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;%&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="n"&gt;i&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;span class="w"&gt;    &lt;/span&gt;&lt;span class="k"&gt;print&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="ss"&gt;&amp;quot;-----------&amp;gt; Sending: {}&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;format&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;currentPayload&lt;/span&gt;&lt;span class="p"&gt;))&lt;/span&gt;
+
+&lt;span class="w"&gt;    &lt;/span&gt;&lt;span class="nc"&gt;time&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="n"&gt;sleep&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mf"&gt;0.2&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+&lt;span class="w"&gt;    &lt;/span&gt;&lt;span class="n"&gt;ser&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="k"&gt;write&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;buildPayload&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;hash&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="n"&gt;payload&lt;/span&gt;&lt;span class="p"&gt;))&lt;/span&gt;
+&lt;span class="w"&gt;    &lt;/span&gt;&lt;span class="n"&gt;waitForPrompt&lt;/span&gt;&lt;span class="p"&gt;()&lt;/span&gt;
+
+&lt;span class="n"&gt;ser&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="k"&gt;close&lt;/span&gt;&lt;span class="p"&gt;()&lt;/span&gt;
+&lt;span class="n"&gt;sys&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="k"&gt;exit&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;Running the whole script (which can be found &lt;a href="https://github.com/n0w/ctf-stuff/blob/master/rhme2/secureFS/insecureFS.py"&gt;here&lt;/a&gt;) yields:&lt;/p&gt;
+&lt;p&gt;&lt;img alt="success" src="images/secure_fs/success.png"&gt;&lt;/p&gt;
+&lt;p&gt;After retrieving the flag, I realized there was a hint on the filesize of pepper:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;code&gt;RHMeOS file API
+Files in system:
+
+drwxrwxr-x remote remote 4096 sep  1 .
+drwxrwxr-x remote remote 4096 sep  1 ..
+-r--r--r-- remote remote   87 sep 14 cat.txt
+-r--r--r-- remote remote   47 sep 16 finances.csv
+-r--r--r-- remote remote    3 sep 14 joke.txt
+-rw------- root   root     37 jan  5 passwd
+-rw------- root   root      8 jan  1 pepper
+
+ Request?
+
+&amp;gt;&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;..luckily both attack and bruteforce techniques were simple enough! :D&lt;/p&gt;</content><category term="✒ Blog"></category><category term="atmega328p"></category><category term="cryptography"></category><category term="rhme2"></category><category term="avr"></category></entry><entry><title>Reversing a remote with python and an oscilloscope (Part II)</title><link href="https://blog.outofscope.lol/ac-reversing-2.html" rel="alternate"></link><published>2016-09-10T13:02:00+02:00</published><updated>2016-09-10T13:02:00+02:00</updated><author><name>Angel SB Martin</name></author><id>tag:blog.outofscope.lol,2016-09-10:/ac-reversing-2.html</id><summary type="html">&lt;h2&gt;0x3: from signal to actual bits - python code&lt;/h2&gt;
+&lt;p&gt;To process the values inside the csv files which we previously downloaded from the scope we'll write a python program.&lt;/p&gt;
+&lt;p&gt;The program will flow as follows:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;code&gt;&lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="vm"&gt;__name__&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="s2"&gt;&amp;quot;__main__&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+    &lt;span class="n"&gt;printBanner&lt;/span&gt;&lt;span class="p"&gt;()&lt;/span&gt;
+    &lt;span class="n"&gt;p&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;argparse&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;ArgumentParser&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;description&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;Extracts values from Rigol CSV.&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+    &lt;span class="n"&gt;p&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;add_argument&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;file …&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;</summary><content type="html">&lt;h2&gt;0x3: from signal to actual bits - python code&lt;/h2&gt;
+&lt;p&gt;To process the values inside the csv files which we previously downloaded from the scope we'll write a python program.&lt;/p&gt;
+&lt;p&gt;The program will flow as follows:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;code&gt;&lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="vm"&gt;__name__&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="s2"&gt;&amp;quot;__main__&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+    &lt;span class="n"&gt;printBanner&lt;/span&gt;&lt;span class="p"&gt;()&lt;/span&gt;
+    &lt;span class="n"&gt;p&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;argparse&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;ArgumentParser&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;description&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;Extracts values from Rigol CSV.&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+    &lt;span class="n"&gt;p&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;add_argument&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;file&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;metavar&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;file&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="nb"&gt;type&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="nb"&gt;str&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;help&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;File to process.&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;p&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;add_argument&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;-o&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;--outfile&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;nargs&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;?&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="nb"&gt;type&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="nb"&gt;str&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;help&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;Binary output to file.&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;p&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;add_argument&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;-v&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;--verbosity&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;action&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;store_true&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;help&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;Print extra information to stdout.&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;p&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;add_argument&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;-b&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;--batch&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="nb"&gt;type&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="nb"&gt;str&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;help&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;Process all csv files in target dir.&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;p&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;add_argument&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;-r&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;--reverse&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;action&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;store_true&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+                   &lt;span class="n"&gt;help&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;Assign &amp;#39;1&amp;#39; symbol to short pulses (Defaults to short == &amp;#39;0&amp;#39;).&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;p&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;add_argument&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;-e&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;--endian&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;action&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;store_true&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;
+                   &lt;span class="n"&gt;help&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;Toggle endianness.&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="c1"&gt;# ToDo: Recursive mode.&lt;/span&gt;
+    &lt;span class="n"&gt;args&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;p&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;parse_args&lt;/span&gt;&lt;span class="p"&gt;()&lt;/span&gt;
+
+    &lt;span class="nb"&gt;print&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;[+] Opening wave file &lt;/span&gt;&lt;span class="si"&gt;%s&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;&lt;/span&gt; &lt;span class="o"&gt;%&lt;/span&gt; &lt;span class="n"&gt;args&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;file&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;samples&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;read_rigol_csv&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;args&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;file&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;packet&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;parseWave&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;samples&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;args&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;verbosity&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;args&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;reverse&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;args&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;endian&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+    &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;args&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;outfile&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="n"&gt;outputToFile&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;args&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;outfile&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;packet&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+    &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;args&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;verbosity&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="n"&gt;printToStdout&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;packet&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+    &lt;span class="nb"&gt;print&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;[+] Done.&lt;/span&gt;&lt;span class="se"&gt;\n&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;After parsing the arguments passed to our program, we'll decide what to do with them.&lt;/p&gt;
+&lt;p&gt;The first function to call will be read_rigol_csv(); this function will dump the csv files into a list object:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;code&gt;&lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;read_rigol_csv&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;fname&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;channel&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+    &lt;span class="n"&gt;raw_samples&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="p"&gt;[]&lt;/span&gt;
+
+    &lt;span class="k"&gt;with&lt;/span&gt; &lt;span class="nb"&gt;open&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;fname&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;rt&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="k"&gt;as&lt;/span&gt; &lt;span class="n"&gt;csvfile&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="n"&gt;c&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;csv&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;reader&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;csvfile&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+        &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;row_num&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;row&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="nb"&gt;enumerate&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;c&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+            &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;row_num&lt;/span&gt; &lt;span class="o"&gt;&amp;gt;&lt;/span&gt; &lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+                &lt;span class="n"&gt;raw_samples&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;append&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="nb"&gt;float&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;row&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;]))&lt;/span&gt;
+
+    &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="n"&gt;raw_samples&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;The returned object will be passed as argument to parseWave(), which will decode the voltage values into logic ones and zeroes:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;code&gt;&lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;parseWave&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;samples&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;verbosity&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;reverse&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;endian&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+    &lt;span class="n"&gt;decodedBinaryString&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s2"&gt;&amp;quot;&amp;quot;&lt;/span&gt;
+    &lt;span class="n"&gt;preambleStart&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;
+    &lt;span class="n"&gt;preambleEnd&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;
+    &lt;span class="n"&gt;preambleSize&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;
+    &lt;span class="n"&gt;longPulseDuration&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;
+    &lt;span class="n"&gt;shortPulseDuration&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;
+    &lt;span class="n"&gt;packet&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="p"&gt;[]&lt;/span&gt;
+
+    &lt;span class="c1"&gt;# Detect preamble start&lt;/span&gt;
+    &lt;span class="c1"&gt;# (!) vHIGH may need to be tuned to achieve proper decoding&lt;/span&gt;
+    &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;sample&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="n"&gt;samples&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;sample&lt;/span&gt; &lt;span class="o"&gt;&amp;lt;&lt;/span&gt; &lt;span class="n"&gt;vHIGH&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;verbosity&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+                &lt;span class="nb"&gt;print&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;[+] Preamble start detected! Sample: &lt;/span&gt;&lt;span class="si"&gt;%d&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;&lt;/span&gt; &lt;span class="o"&gt;%&lt;/span&gt; &lt;span class="n"&gt;preambleStart&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+            &lt;span class="k"&gt;break&lt;/span&gt;
+        &lt;span class="k"&gt;else&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="n"&gt;preambleStart&lt;/span&gt; &lt;span class="o"&gt;+=&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;
+
+    &lt;span class="c1"&gt;# Detect preamble end&lt;/span&gt;
+    &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;sample&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="n"&gt;samples&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;preambleStart&lt;/span&gt;&lt;span class="p"&gt;:]:&lt;/span&gt;
+        &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;sample&lt;/span&gt; &lt;span class="o"&gt;&amp;gt;&lt;/span&gt; &lt;span class="n"&gt;vLOW&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="n"&gt;preambleEnd&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;preambleStart&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;preambleSize&lt;/span&gt;
+            &lt;span class="n"&gt;shortPulseDuration&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;preambleSize&lt;/span&gt; &lt;span class="o"&gt;/&lt;/span&gt; &lt;span class="mi"&gt;11&lt;/span&gt;
+            &lt;span class="n"&gt;longPulseDuration&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;preambleSize&lt;/span&gt; &lt;span class="o"&gt;/&lt;/span&gt; &lt;span class="mi"&gt;3&lt;/span&gt;
+
+            &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;verbosity&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+                &lt;span class="nb"&gt;print&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;[+] Preamble end detected! Sample: &lt;/span&gt;&lt;span class="si"&gt;%d&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;&lt;/span&gt; &lt;span class="o"&gt;%&lt;/span&gt; &lt;span class="n"&gt;preambleEnd&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+                &lt;span class="nb"&gt;print&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot; |------- Preamble duration: &lt;/span&gt;&lt;span class="si"&gt;%d&lt;/span&gt;&lt;span class="s2"&gt; samples&amp;quot;&lt;/span&gt; &lt;span class="o"&gt;%&lt;/span&gt; &lt;span class="n"&gt;preambleSize&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+                &lt;span class="nb"&gt;print&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot; |---- Short pulse duration: &lt;/span&gt;&lt;span class="si"&gt;%d&lt;/span&gt;&lt;span class="s2"&gt; samples&amp;quot;&lt;/span&gt; &lt;span class="o"&gt;%&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;shortPulseDuration&lt;/span&gt;&lt;span class="p"&gt;))&lt;/span&gt;
+                &lt;span class="nb"&gt;print&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot; |----  Long pulse duration: &lt;/span&gt;&lt;span class="si"&gt;%d&lt;/span&gt;&lt;span class="s2"&gt; samples&amp;quot;&lt;/span&gt; &lt;span class="o"&gt;%&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;longPulseDuration&lt;/span&gt;&lt;span class="p"&gt;))&lt;/span&gt;
+
+            &lt;span class="c1"&gt;# Sanity check&lt;/span&gt;
+            &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;shortPulseDuration&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="ow"&gt;or&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;longPulseDuration&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="ow"&gt;or&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;preambleSize&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+                &lt;span class="nb"&gt;print&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;[e] Zero value detected, bad threshold values? Quitting...&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+                &lt;span class="n"&gt;exit&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="o"&gt;-&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+            &lt;span class="k"&gt;else&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+                &lt;span class="nb"&gt;print&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;[+] Decoding...&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+                &lt;span class="k"&gt;break&lt;/span&gt;
+        &lt;span class="k"&gt;else&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="n"&gt;preambleSize&lt;/span&gt; &lt;span class="o"&gt;+=&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;
+
+    &lt;span class="c1"&gt;# Start parsing&lt;/span&gt;
+    &lt;span class="c1"&gt;# numSamplesAct will hold the number or read samples prior to a high-to-low transition&lt;/span&gt;
+    &lt;span class="n"&gt;numSamplesAct&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;
+
+    &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;sample&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="n"&gt;samples&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;preambleEnd&lt;/span&gt;&lt;span class="p"&gt;:]:&lt;/span&gt;
+        &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;sample&lt;/span&gt; &lt;span class="o"&gt;&amp;gt;&lt;/span&gt; &lt;span class="n"&gt;vHIGH&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="n"&gt;numSamplesAct&lt;/span&gt; &lt;span class="o"&gt;+=&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;
+        &lt;span class="k"&gt;else&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="n"&gt;decoded&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;decode&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;numSamplesAct&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;longPulseDuration&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;reverse&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+            &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;decoded&lt;/span&gt; &lt;span class="ow"&gt;is&lt;/span&gt; &lt;span class="ow"&gt;not&lt;/span&gt; &lt;span class="kc"&gt;None&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+                &lt;span class="n"&gt;decodedBinaryString&lt;/span&gt; &lt;span class="o"&gt;+=&lt;/span&gt; &lt;span class="n"&gt;decoded&lt;/span&gt;
+
+            &lt;span class="n"&gt;numSamplesAct&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;
+
+    &lt;span class="c1"&gt;# Rip off START bit&lt;/span&gt;
+    &lt;span class="n"&gt;decodedBinaryString&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;decodedBinaryString&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;:]&lt;/span&gt;
+
+    &lt;span class="n"&gt;i&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;
+    &lt;span class="n"&gt;currentByte&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s2"&gt;&amp;quot;&amp;quot;&lt;/span&gt;
+
+    &lt;span class="nb"&gt;print&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;[+] Decoded &lt;/span&gt;&lt;span class="si"&gt;%s&lt;/span&gt;&lt;span class="s2"&gt; bytes&amp;quot;&lt;/span&gt; &lt;span class="o"&gt;%&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="nb"&gt;len&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;decodedBinaryString&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="o"&gt;/&lt;/span&gt; &lt;span class="mf"&gt;8.0&lt;/span&gt;&lt;span class="p"&gt;))&lt;/span&gt;
+
+    &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;bit&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="n"&gt;decodedBinaryString&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;i&lt;/span&gt; &lt;span class="o"&gt;&amp;lt;&lt;/span&gt; &lt;span class="mi"&gt;7&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="n"&gt;currentByte&lt;/span&gt; &lt;span class="o"&gt;+=&lt;/span&gt; &lt;span class="n"&gt;bit&lt;/span&gt;
+            &lt;span class="n"&gt;i&lt;/span&gt; &lt;span class="o"&gt;+=&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;
+        &lt;span class="k"&gt;else&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="n"&gt;currentByte&lt;/span&gt; &lt;span class="o"&gt;+=&lt;/span&gt; &lt;span class="n"&gt;bit&lt;/span&gt;
+            &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;endian&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+                &lt;span class="n"&gt;currentByte&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;currentByte&lt;/span&gt;&lt;span class="p"&gt;[::&lt;/span&gt;&lt;span class="o"&gt;-&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;
+            &lt;span class="n"&gt;packet&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;append&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;struct&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;pack&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;B&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="nb"&gt;int&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;currentByte&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;)))&lt;/span&gt;
+
+            &lt;span class="n"&gt;currentByte&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s2"&gt;&amp;quot;&amp;quot;&lt;/span&gt;
+            &lt;span class="n"&gt;i&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;
+    &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="n"&gt;packet&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;So this function does the juicy stuff:&lt;/p&gt;
+&lt;p&gt;First we have to detect the preamble; by observing the captures taken on the previous post, we can see that the voltage is normally high (~3v) and the preamble is just a bunch of low voltage samples; what we are going to do is to detect both start and end samples just by looping from the start and comparing the current sample with certain values that I have defined as global:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;code&gt;THRESHOLD_VOLTAGE = 1.5
+THRESHOLD_SAMPLES = 10
+vHIGH = 2
+vLOW = 1
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;So, once we have detected both preamble start and end, we can use that information to infer the length of our pulses, as we learned with the oscilloscope on the previous post:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;code&gt;&lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;sample&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="n"&gt;samples&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;preambleStart&lt;/span&gt;&lt;span class="p"&gt;:]:&lt;/span&gt;
+    &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;sample&lt;/span&gt; &lt;span class="o"&gt;&amp;gt;&lt;/span&gt; &lt;span class="n"&gt;vLOW&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="n"&gt;preambleEnd&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;preambleStart&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="n"&gt;preambleSize&lt;/span&gt;
+        &lt;span class="n"&gt;shortPulseDuration&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;preambleSize&lt;/span&gt; &lt;span class="o"&gt;/&lt;/span&gt; &lt;span class="mi"&gt;11&lt;/span&gt;
+        &lt;span class="n"&gt;longPulseDuration&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;shortPulseDuration&lt;/span&gt; &lt;span class="o"&gt;*&lt;/span&gt; &lt;span class="mi"&gt;3&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;With those values we loop through the rest of the samples accumulating the number of vHigh samples (i.e. how much samples does it take to get to a high-to-low change).&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;code&gt;&lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;sample&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="n"&gt;samples&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;preambleEnd&lt;/span&gt;&lt;span class="p"&gt;:]:&lt;/span&gt;
+    &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;sample&lt;/span&gt; &lt;span class="o"&gt;&amp;gt;&lt;/span&gt; &lt;span class="n"&gt;vHIGH&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="n"&gt;numSamplesAct&lt;/span&gt; &lt;span class="o"&gt;+=&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;
+    &lt;span class="k"&gt;else&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="n"&gt;decoded&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;decode&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;numSamplesAct&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;longPulseDuration&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;reverse&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+        &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;decoded&lt;/span&gt; &lt;span class="ow"&gt;is&lt;/span&gt; &lt;span class="ow"&gt;not&lt;/span&gt; &lt;span class="kc"&gt;None&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="n"&gt;decodedBinaryString&lt;/span&gt; &lt;span class="o"&gt;+=&lt;/span&gt; &lt;span class="n"&gt;decoded&lt;/span&gt;
+
+        &lt;span class="n"&gt;numSamplesAct&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;Then we call the decode() function which will take the accumulated samples as an argument, as well as how much samples a long pulse lasts and the reverse flag to indicate if a long pulse is interpreted as a logic one or as a logic zero:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;code&gt;&lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;decode&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;num_samples&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;longPulseDuration&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;reverse&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+    &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;num_samples&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="k"&gt;return&lt;/span&gt;
+
+    &lt;span class="c1"&gt;# Using XOR to reverse symbol assignation&lt;/span&gt;
+    &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;num_samples&lt;/span&gt; &lt;span class="o"&gt;&amp;lt;&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;longPulseDuration&lt;/span&gt; &lt;span class="o"&gt;-&lt;/span&gt; &lt;span class="n"&gt;longPulseDuration&lt;/span&gt; &lt;span class="o"&gt;/&lt;/span&gt; &lt;span class="mf"&gt;2.5&lt;/span&gt;&lt;span class="p"&gt;))&lt;/span&gt; &lt;span class="o"&gt;^&lt;/span&gt; &lt;span class="n"&gt;reverse&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;0&amp;#39;&lt;/span&gt;
+    &lt;span class="k"&gt;else&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="k"&gt;return&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;1&amp;#39;&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;The previous 'if' statement decides whether to assign a one or a zero, xored with the 'reverse' flag (which effectively reverts the comparison result when set to '1' but does nothing when set to '0'). The (long-long/2.5) calculation is more or less accurate by taking noise variability into account; the number of samples will almost never be exactly the expected because the transmission medium nor the transmitter or receiver device are perfect.&lt;/p&gt;
+&lt;p&gt;Once we have decided to which logic level our samples get translated, we just group our bits in 8 element groups, pack them in a list and off we go!&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;code&gt;&lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;bit&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="n"&gt;decodedBinaryString&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+    &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;i&lt;/span&gt; &lt;span class="o"&gt;&amp;lt;&lt;/span&gt; &lt;span class="mi"&gt;7&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="n"&gt;currentByte&lt;/span&gt; &lt;span class="o"&gt;+=&lt;/span&gt; &lt;span class="n"&gt;bit&lt;/span&gt;
+        &lt;span class="n"&gt;i&lt;/span&gt; &lt;span class="o"&gt;+=&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;
+    &lt;span class="k"&gt;else&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+        &lt;span class="n"&gt;currentByte&lt;/span&gt; &lt;span class="o"&gt;+=&lt;/span&gt; &lt;span class="n"&gt;bit&lt;/span&gt;
+        &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;endian&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+            &lt;span class="n"&gt;currentByte&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;currentByte&lt;/span&gt;&lt;span class="p"&gt;[::&lt;/span&gt;&lt;span class="o"&gt;-&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;
+        &lt;span class="n"&gt;packet&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;append&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;struct&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;pack&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;B&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="nb"&gt;int&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;currentByte&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;)))&lt;/span&gt;
+
+        &lt;span class="n"&gt;currentByte&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s2"&gt;&amp;quot;&amp;quot;&lt;/span&gt;
+        &lt;span class="n"&gt;i&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;Now we can add a little eye candy to nicely print what we've decoded or save it to a file:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;code&gt;&lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;printToStdout&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;packet&lt;/span&gt;&lt;span class="p"&gt;):&lt;/span&gt;
+    &lt;span class="c1"&gt;# Print human friendly binary string&lt;/span&gt;
+    &lt;span class="k"&gt;for&lt;/span&gt; &lt;span class="n"&gt;byte&lt;/span&gt; &lt;span class="ow"&gt;in&lt;/span&gt; &lt;span class="n"&gt;packet&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+
+        &lt;span class="c1"&gt;# Unpacked byte&lt;/span&gt;
+        &lt;span class="n"&gt;unpacked&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;struct&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;unpack&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;B&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;byte&lt;/span&gt;&lt;span class="p"&gt;)[&lt;/span&gt;&lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt;
+
+        &lt;span class="c1"&gt;# ASCII bin representation&lt;/span&gt;
+        &lt;span class="n"&gt;binascii&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="nb"&gt;bin&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="nb"&gt;int&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;unpacked&lt;/span&gt;&lt;span class="p"&gt;)))[&lt;/span&gt;&lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;:]&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;zfill&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;8&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+        &lt;span class="c1"&gt;# ASCII hex representation&lt;/span&gt;
+        &lt;span class="n"&gt;hexascii&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s2"&gt;&amp;quot;0x&amp;quot;&lt;/span&gt; &lt;span class="o"&gt;+&lt;/span&gt; &lt;span class="nb"&gt;hex&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;unpacked&lt;/span&gt;&lt;span class="p"&gt;)[&lt;/span&gt;&lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;:]&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;zfill&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+        &lt;span class="nb"&gt;print&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot; |-----[&lt;/span&gt;&lt;span class="si"&gt;%s&lt;/span&gt;&lt;span class="s2"&gt;]  |  &lt;/span&gt;&lt;span class="si"&gt;%s&lt;/span&gt;&lt;span class="s2"&gt;&amp;quot;&lt;/span&gt; &lt;span class="o"&gt;%&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;binascii&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;hexascii&lt;/span&gt;&lt;span class="p"&gt;))&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;And voila! Our csv gets decoded and we can work on reverse engineer the protocol.&lt;/p&gt;
+&lt;p&gt;The full code as well as some example captures is hosted on github: https://github.com/n0w/acreversing&lt;/p&gt;</content><category term="✒ Blog"></category><category term="hardware hacking"></category><category term="electronics"></category><category term="reverse-engineering"></category></entry><entry><title>Reversing a remote with python and an oscilloscope (Part I)</title><link href="https://blog.outofscope.lol/ac-reversing-1.html" rel="alternate"></link><published>2016-09-01T21:34:00+02:00</published><updated>2016-09-01T21:34:00+02:00</updated><author><name>Angel SB Martin</name></author><id>tag:blog.outofscope.lol,2016-09-01:/ac-reversing-1.html</id><summary type="html">&lt;p&gt;In this series we will analyze and discuss the inner workings of an infrared AC remote. These little devices are as common as well-known, so I will obviate most of the stuff which can be found online (but provide useful links for the curious reader :p).&lt;/p&gt;
+&lt;h2&gt;0x0: target&lt;/h2&gt;
+&lt;p&gt;The remote …&lt;/p&gt;</summary><content type="html">&lt;p&gt;In this series we will analyze and discuss the inner workings of an infrared AC remote. These little devices are as common as well-known, so I will obviate most of the stuff which can be found online (but provide useful links for the curious reader :p).&lt;/p&gt;
+&lt;h2&gt;0x0: target&lt;/h2&gt;
+&lt;p&gt;The remote has several buttons and a simple LCD screen showing the current settings.  &lt;/p&gt;
+&lt;p&gt;By pressing 'mode' it switches between four different modes, attending to the icon (or lack of it) displayed on the screen:  &lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Snow flake&lt;/li&gt;
+&lt;li&gt;Arrow-like rounded A&lt;/li&gt;
+&lt;li&gt;Water drop&lt;/li&gt;
+&lt;li&gt;Blank&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;There are also two icons representing the fan status, and of course, the current temperature setting.&lt;/p&gt;
+&lt;p&gt;The first thing to do would be looking up in the user guide for what that tiny icons do, but we may be anxious to capture some signals and (luckily) decode some bits out of them so maybe later :p  &lt;/p&gt;
+&lt;p&gt;Anyway, the buttons are pretty self-explaining except for the 'turbo' one which seems to switch to some &lt;em&gt;preset state&lt;/em&gt;, displaying 16º and full fan speed on display (annoyingly overriding any previous setting). &lt;/p&gt;
+&lt;p&gt;Almost every one of these type of remotes usually send one full packet every time a button gets released (this one even waits for some time to actually send the packet if you repeatedly press quickly enough) containing the current state which the AC unit should be on.&lt;/p&gt;
+&lt;h2&gt;0x1: playset&lt;/h2&gt;
+&lt;p&gt;I used a handy DS1054Z hooked up to and a very simple circuit described above to acquire the signal.&lt;/p&gt;
+&lt;h4&gt;0x1[0] Part/tool list&lt;/h4&gt;
+&lt;ul&gt;
+&lt;li&gt;1 x breadboard&lt;/li&gt;
+&lt;li&gt;1x tsop382 infrared sensor (&lt;a href="http://www.vishay.com/docs/82491/tsop382.pdf"&gt;datasheet&lt;/a&gt;)&lt;/li&gt;
+&lt;li&gt;6 x jumper cables  &lt;/li&gt;
+&lt;li&gt;1 x 3v3 power source &lt;/li&gt;
+&lt;li&gt;1 x oscilloscope&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;Pins 2 and 3 are connected to GND and 3v3 respectively, and pin 1 is connected to DS1054Z's channel one. In my setup I'm using an Arduino just to power the receiver.&lt;/p&gt;
+&lt;h4&gt;0x1[1] a little bit of theory&lt;/h4&gt;
+&lt;p&gt;As Giorgos Lazaridis writes on &lt;a href="http://www.pcbheaven.com/userpages/RC_Protocol_and_Modulation/"&gt;Remote Control Basics&lt;/a&gt;:  &lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;em&gt;It is important to understand the difference between modulation and protocol. In words, modulation is the method that the signal is being transmitted by the transmitter so that the receiver will recognize it as a valid signal. On the other hand, the protocol is the method that the data to be transmitted are arranged and sent to the receiver - Both the receiver and transmitter must have the same modulation-demodulation method and also they must have the same protocol encoding and decoding method.&lt;/em&gt;&lt;/p&gt;
+&lt;p&gt;&lt;em&gt;[...]&lt;/em&gt;&lt;/p&gt;
+&lt;p&gt;&lt;em&gt;Here is how this works: First of all we select a frequency for the carrier frequency such that it cannot be mistaken with other ambient IR frequencies. A very common range for IR transmitters is 36 to 46 KHz. Suppose that we choose a carrier frequency of 38 KHz.&lt;/em&gt;&lt;/p&gt;
+&lt;p&gt;&lt;em&gt;Suppose now that we want to transmit a pulse with 8 mSec ON duration and 2 mSec OFF duration (digital ACE). Instead of simply turning ON the LED for 8 mSec, we will set the LED to oscillate at the carrier frequency for 8 mSec. This way, instead of transmitting a continuous light beam, we transmit a series of very fast light pulses (38 KHz) for a duration of 8 mSec. The receiver has a narrow band filter that discards all other IR light sources that do not have a 38 KHz frequency. If the transmitted signal reaches the receiver, it will go through the narrow-band filter. Then, with a set of low-pass filters or other filtering devices, it will be translated into a pulse back again.&lt;/em&gt;&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;Luckily for us, it turns out that the tsop382 filters and demodulates the signal for us, so we are left with bit decoding and protocol reversing. Nice!&lt;/p&gt;
+&lt;p&gt;As the tsop382 datasheet states:&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;em&gt;These products are miniaturized IR receiver modules for infrared remote control systems. A PIN diode and a preamplifier are assembled on a leadframe, the epoxy package contains an IR filter. The demodulated output signal can be directly connected to a microprocessor for decoding.&lt;/em&gt;&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;So now it's time to power the scope and start pressing buttons, adjusting time and voltage settings to try and get a visual image of what's going on the remote.&lt;/p&gt;
+&lt;h2&gt;0x2: acquiring the signal&lt;/h2&gt;
+&lt;p&gt;Once we visualize our signal in 'live' mode, we have to capture as many signals as we can to get an idea of what's being sent. It's a pretty tedious (and slow!) job: set SINGLE mode, press button, export, set SINGLE mode again, press another button, repeat.&lt;/p&gt;
+&lt;p&gt;There are several projects over the Internet looking to speed things up a little; &lt;a href="https://github.com/RoGeorge/DS1054Z_screen_capture"&gt;this one&lt;/a&gt; was particularly convenient to grab the displayed signal voltage values in a nice csv over the network (much quicker than using a USB drive to transfer them!). I also used it to take the PNG screenshots of the scope for this post ^^.&lt;/p&gt;
+&lt;p&gt;The process I followed was basically to capture ON/OFF packets without changing any setting (21º max fan snowflake) and then increasing the temperature one step each capture. I didn't knew anything about the protocol, not did I care, yet, but it seemed logical that only a few bits of the sequence would change on one-step-changes (unless I were trying to reverse-engineer a cheap AC control featuring Military Grade© encryption).&lt;/p&gt;
+&lt;p&gt;Note: In my first attempt to transfer the signal values to my PC I did realize that every capture was around 20MB, so I lowered the sample rate to 500kS/s.&lt;/p&gt;
+&lt;h2&gt;0x3: from signal to actual bits&lt;/h2&gt;
+&lt;p&gt;If we take a closer look to the signal we can appreciate a long low pulse first and long and short high ones after, conforming the rest of the packet. So the long low must be the preamble:&lt;/p&gt;
+&lt;p&gt;Then we have the long high:&lt;/p&gt;
+&lt;p&gt;Finally the short high:&lt;/p&gt;
+&lt;p&gt;With the help of the built-in cursor we can measure the actual length of the pulses (BX-AX value):&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Preamble: ~3,3ms&lt;/li&gt;
+&lt;li&gt;Long: ~1,1 ms&lt;/li&gt;
+&lt;li&gt;Short: ~0.3 ms&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;It looks like a certain ratio exists between preamble, long and short pulses that will help us to properly decode the signal; if we name the short pulse 'S', the long 'L' and the preamble 'P' we have:&lt;/p&gt;
+&lt;p&gt;&lt;code&gt;P ~= 3*L ~= 11S&lt;/code&gt;&lt;/p&gt;
+&lt;p&gt;So by any means the preamble length could be used by a receiver to synchronize its clock to the expected long and short pulse lengths.&lt;/p&gt;
+&lt;p&gt;Once the data samples have been transfered to a computer we can run the following python script to plot the voltage values contained in the csv file:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;code&gt;&lt;span class="ch"&gt;#!/usr/bin/python3&lt;/span&gt;
+
+&lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="nn"&gt;csv&lt;/span&gt;
+&lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="nn"&gt;numpy&lt;/span&gt; &lt;span class="k"&gt;as&lt;/span&gt; &lt;span class="nn"&gt;np&lt;/span&gt;
+&lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="nn"&gt;matplotlib.pyplot&lt;/span&gt; &lt;span class="k"&gt;as&lt;/span&gt; &lt;span class="nn"&gt;plt&lt;/span&gt;
+&lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="nn"&gt;argparse&lt;/span&gt;
+&lt;span class="kn"&gt;import&lt;/span&gt; &lt;span class="nn"&gt;sys&lt;/span&gt;
+
+&lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="vm"&gt;__name__&lt;/span&gt; &lt;span class="o"&gt;==&lt;/span&gt; &lt;span class="s2"&gt;&amp;quot;__main__&amp;quot;&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;
+    &lt;span class="n"&gt;p&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;argparse&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;ArgumentParser&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;description&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;Extracts values from Rigol CSV.&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;p&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;add_argument&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;file&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;metavar&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;file&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="nb"&gt;type&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="nb"&gt;str&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;help&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;File to process.&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;args&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;p&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;parse_args&lt;/span&gt;&lt;span class="p"&gt;()&lt;/span&gt;
+
+
+    &lt;span class="n"&gt;data&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;np&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;genfromtxt&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;args&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;file&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;delimiter&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;,&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;skip_header&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="mi"&gt;0&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;names&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;x&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;&amp;#39;y&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;])&lt;/span&gt;
+
+    &lt;span class="n"&gt;fig&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;plt&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;figure&lt;/span&gt;&lt;span class="p"&gt;()&lt;/span&gt;
+    &lt;span class="n"&gt;ax1&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;fig&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;add_subplot&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;111&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;ax1&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;plot&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;data&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;x&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;],&lt;/span&gt; &lt;span class="n"&gt;data&lt;/span&gt;&lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;y&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;],&lt;/span&gt; &lt;span class="n"&gt;color&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;r&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="n"&gt;label&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;the data&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+    &lt;span class="n"&gt;plt&lt;/span&gt;&lt;span class="o"&gt;.&lt;/span&gt;&lt;span class="n"&gt;show&lt;/span&gt;&lt;span class="p"&gt;()&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;p&gt;The script will take the csv file as argument, extracting its data by using the numpy lib and plotting it with matplotlib, showing the following output:&lt;/p&gt;
+&lt;p&gt;After playing a little with the pan/zoom controls we get the same wave displayed at the scope:&lt;/p&gt;
+&lt;p&gt;The signal oscillates between ~3 and ~0 volts; it looks like some kind of pulse width encoding is being used (see: &lt;a href="https://en.wikipedia.org/wiki/Pulse-width_modulation"&gt;PWM&lt;/a&gt;). As we don't really know how the protocol was designed, we will (randomly) assign logic 'one' to long pulses and logic 'zero' to the short ones. It doesn't really matter (in fact, the program I wrote lets you decode the file in both ways) how we assign the symbols as long as we do it in a proper way.&lt;/p&gt;
+&lt;p&gt;The same problem arises with the endianness: we don't really know if the remote is sending the most or the least significant bit first... no problem! Our little python program will let us play with the endianness too:&lt;/p&gt;</content><category term="✒ Blog"></category><category term="hardware hacking"></category><category term="electronics"></category><category term="reverse-engineering"></category></entry><entry><title>(in)secure booting linux</title><link href="https://blog.outofscope.lol/ibl.html" rel="alternate"></link><published>2015-10-01T21:49:00+02:00</published><updated>2015-10-01T21:49:00+02:00</updated><author><name>Angel SB Martin</name></author><id>tag:blog.outofscope.lol,2015-10-01:/ibl.html</id><summary type="html">&lt;p&gt;Booting a computer is a complex process involving several components working in unison from the moment it powers on. After pressing the 'on' button, the motherboard receives power, initiating device setup routines.&lt;/p&gt;
+&lt;p&gt;The CPU registers initialize with default values, and then the BIOS/UEFI code runs, depending on the motherboard …&lt;/p&gt;</summary><content type="html">&lt;p&gt;Booting a computer is a complex process involving several components working in unison from the moment it powers on. After pressing the 'on' button, the motherboard receives power, initiating device setup routines.&lt;/p&gt;
+&lt;p&gt;The CPU registers initialize with default values, and then the BIOS/UEFI code runs, depending on the motherboard model and system configuration.&lt;/p&gt;
+&lt;p&gt;&lt;img alt="The boot process" src="images/ibl/2.png"&gt;&lt;/p&gt;
+&lt;p&gt;When using BIOS, the boot process identifies the highest-priority bootable device, mapping the first 446 bytes of its boot sector into RAM. This space contains the bootloader code, which initiates execution.&lt;/p&gt;
+&lt;p&gt;The CPU registers initialize with default values, and then the BIOS/UEFI code runs, depending on the motherboard model and system configuration.&lt;/p&gt;
+&lt;p&gt;When using BIOS, the boot process identifies the highest-priority bootable device, mapping the first 446 bytes of its boot sector into RAM. This space contains the bootloader code, which initiates execution.&lt;/p&gt;
+&lt;h2&gt;GRUB Bootloader&lt;/h2&gt;
+&lt;p&gt;On Linux systems, GRUB is a common bootloader, executing in sequential stages. This technique, known as bootstrapping or chain loading, addresses BIOS limitations with early boot stages that require constrained memory and CPU register usage (real mode). Bootloader code must also be compact; only the first 446 bytes of the Master Boot Record (MBR) are available for the bootloader, as the last 66 bytes are reserved (64 for the partition table and 2 for the boot signature).&lt;/p&gt;
+&lt;p&gt;&lt;img alt="The GRUB bootloader" src="images/ibl/3.png"&gt;&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;Stage 1 (boot.img)&lt;/strong&gt; - Executed from the MBR, this stage locates and loads the next stage (core.img) into memory.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;Stage 2&lt;/strong&gt; - This stage sets up the environment to load and execute the compressed Linux kernel by loading necessary runtime modules, then hands control over to the kernel.&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ol&gt;
+&lt;h2&gt;Linux Kernel and Initramfs&lt;/h2&gt;
+&lt;p&gt;The Linux kernel requires a temporary filesystem, &lt;code&gt;initramfs&lt;/code&gt; (Initial RAM File System), to operate initially. It later mounts the actual filesystem. &lt;code&gt;initramfs&lt;/code&gt; is loaded from &lt;code&gt;/boot/initrd.img-&amp;lt;kernel-version&amp;gt;-&amp;lt;architecture&amp;gt;&lt;/code&gt; and is a gzipped CPIO archive containing the following structure:&lt;/p&gt;
+&lt;div class="highlight"&gt;&lt;pre&gt;&lt;span&gt;&lt;/span&gt;&lt;code&gt;asuarez@lLap$&lt;span class="w"&gt; &lt;/span&gt;ls&lt;span class="w"&gt; &lt;/span&gt;-lh
+total&lt;span class="w"&gt; &lt;/span&gt;40K
+drwxr-xr-x&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;2&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;asuarez&lt;span class="w"&gt; &lt;/span&gt;asuarez&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;4&lt;/span&gt;.0K&lt;span class="w"&gt; &lt;/span&gt;Jul&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;15&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;18&lt;/span&gt;:21&lt;span class="w"&gt; &lt;/span&gt;bin
+drwxr-xr-x&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;3&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;asuarez&lt;span class="w"&gt; &lt;/span&gt;asuarez&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;4&lt;/span&gt;.0K&lt;span class="w"&gt; &lt;/span&gt;Jul&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;15&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;13&lt;/span&gt;:15&lt;span class="w"&gt; &lt;/span&gt;conf
+drwxr-xr-x&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;6&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;asuarez&lt;span class="w"&gt; &lt;/span&gt;asuarez&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;4&lt;/span&gt;.0K&lt;span class="w"&gt; &lt;/span&gt;Jul&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;15&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;13&lt;/span&gt;:15&lt;span class="w"&gt; &lt;/span&gt;etc
+-rwxr-xr-x&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;1&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;asuarez&lt;span class="w"&gt; &lt;/span&gt;asuarez&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;6&lt;/span&gt;.9K&lt;span class="w"&gt; &lt;/span&gt;Jul&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;15&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;18&lt;/span&gt;:26&lt;span class="w"&gt; &lt;/span&gt;init
+drwxr-xr-x&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;8&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;asuarez&lt;span class="w"&gt; &lt;/span&gt;asuarez&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;4&lt;/span&gt;.0K&lt;span class="w"&gt; &lt;/span&gt;Jul&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;15&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;13&lt;/span&gt;:15&lt;span class="w"&gt; &lt;/span&gt;lib
+drwxr-xr-x&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;2&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;asuarez&lt;span class="w"&gt; &lt;/span&gt;asuarez&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;4&lt;/span&gt;.0K&lt;span class="w"&gt; &lt;/span&gt;Jul&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;15&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;13&lt;/span&gt;:15&lt;span class="w"&gt; &lt;/span&gt;lib64
+drwxr-xr-x&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;2&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;asuarez&lt;span class="w"&gt; &lt;/span&gt;asuarez&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;4&lt;/span&gt;.0K&lt;span class="w"&gt; &lt;/span&gt;Jul&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;15&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;13&lt;/span&gt;:15&lt;span class="w"&gt; &lt;/span&gt;run
+drwxr-xr-x&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;2&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;asuarez&lt;span class="w"&gt; &lt;/span&gt;asuarez&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;4&lt;/span&gt;.0K&lt;span class="w"&gt; &lt;/span&gt;Jul&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;15&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;13&lt;/span&gt;:15&lt;span class="w"&gt; &lt;/span&gt;sbin
+drwxr-xr-x&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;8&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;asuarez&lt;span class="w"&gt; &lt;/span&gt;asuarez&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;4&lt;/span&gt;.0K&lt;span class="w"&gt; &lt;/span&gt;Jul&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;15&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="m"&gt;13&lt;/span&gt;:15&lt;span class="w"&gt; &lt;/span&gt;scripts
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;
+
+&lt;h2&gt;Encrypting the Root Filesystem&lt;/h2&gt;
+&lt;p&gt;During initialization, scripts within the &lt;code&gt;init&lt;/code&gt; file set up certain devices. For encrypted root filesystems (using LUKS/dm-crypt), a script (&lt;code&gt;scripts/local-top/cryptroot&lt;/code&gt;) opens the LUKS container. It uses &lt;code&gt;/lib/cryptsetup/askpass&lt;/code&gt; to prompt for the encryption passphrase and passes it to &lt;code&gt;/sbin/cryptsetup&lt;/code&gt;.&lt;/p&gt;
+&lt;p&gt;If the system uses boot-time visuals like Plymouth, the password input is managed there instead.&lt;/p&gt;
+&lt;p&gt;When setting up a new Linux OS with an encrypted root filesystem, “full disk encryption” usually leaves &lt;code&gt;/boot&lt;/code&gt; unencrypted, containing the bootloader (stage 2), compressed kernel, and initrd file. Compromising any of these components could jeopardize system integrity.&lt;/p&gt;
+&lt;h2&gt;The Attack&lt;/h2&gt;
+&lt;p&gt;&lt;img alt="Evil maid attack" src="images/ibl/5.png"&gt;&lt;/p&gt;
+&lt;p&gt;This attack replaces the &lt;code&gt;/boot/initrd&lt;/code&gt; file with a malicious version, enabling the attacker to execute code at boot time, capture the disk encryption password, and compromise the system (e.g., through a reverse root shell). &lt;/p&gt;
+&lt;p&gt;Using methods like a malicious USB, WiFi access point, or tampering with the victim's hard disk, an evil-maid attack could be feasible.&lt;/p&gt;
+&lt;p&gt;The attack has three stages:&lt;/p&gt;
+&lt;p&gt;&lt;img alt="Stages" src="images/ibl/6.png"&gt;&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;Stage 0 (MitM)&lt;/strong&gt; - The &lt;code&gt;/scripts/local-top/cryptroot&lt;/code&gt; file is modified to capture the password after the user presses Enter. It prints and saves the password.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;Stage 1&lt;/strong&gt; - A kernel module, inserted via the &lt;code&gt;init&lt;/code&gt; file, uses &lt;code&gt;call_usermodehelper()&lt;/code&gt; to execute the next stage in user mode (ring3).&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;Stage 2&lt;/strong&gt; - This payload configures the wireless adapter using &lt;code&gt;/bin/nmcli&lt;/code&gt; to connect to a malicious AP. It then opens a TCP socket to transmit the password and provide a root shell.&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;The malicious initrd file will look similar to the following image:&lt;/p&gt;
+&lt;p&gt;&lt;img alt="Stages" src="images/ibl/7.png"&gt;&lt;/p&gt;
+&lt;p&gt;The attacker must place the stage 2 binary in the &lt;code&gt;/boot&lt;/code&gt; partition, alongside the modified &lt;code&gt;initrd&lt;/code&gt;.&lt;/p&gt;
+&lt;p&gt;A recorded PoC shows this attack on a VM, using an external USB wireless adapter and a malicious AP via hostapd:&lt;/p&gt;
+&lt;iframe width="420" height="315" src="https://www.youtube.com/embed/Pm1db6CAUlI"&gt;&lt;/iframe&gt;
+
+&lt;h2&gt;Mitigations&lt;/h2&gt;
+&lt;p&gt;In software-based encryption, the essential encryption-handling code remains unencrypted, complicating true “full disk encryption.” While this discussion focuses on &lt;code&gt;/boot&lt;/code&gt;, encrypting this partition by adding necessary crypto modules to GRUB’s stage 1 is possible, though it still leaves the MBR exposed to more complex bootkit-like attacks.&lt;/p&gt;
+&lt;p&gt;An alternative would be to store the &lt;code&gt;/boot&lt;/code&gt; partition on an external device, ensuring boot integrity.&lt;/p&gt;
+&lt;p&gt;The ideal solution is Secure Boot (an UEFI feature designed to address bootkit threats).&lt;/p&gt;
+&lt;p&gt;Another approach is to hash and verify &lt;code&gt;/boot&lt;/code&gt; on each boot, though this alone cannot prevent compromise.&lt;/p&gt;
+&lt;h2&gt;Source Code&lt;/h2&gt;
+&lt;p&gt;Source code for the three attack stages, along with slides from the Navaja Negra 2015 conference, is available at &lt;a href="https://github.com/n0w/ibl"&gt;github.com/n0w/ibl&lt;/a&gt;.&lt;/p&gt;</content><category term="✒ Blog"></category><category term="evil maid"></category><category term="boot"></category><category term="bios"></category><category term="bootloader"></category></entry></feed>
